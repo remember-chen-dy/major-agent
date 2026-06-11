@@ -1,0 +1,271 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  body {
+    background-color: #fdfcfa;
+    color: #292524;
+    font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', 'Roboto', sans-serif;
+  }
+
+  /* 渐变文字工具类 - 金棕渐变 */
+  .gradient-text {
+    background: linear-gradient(135deg, #c9a84c 0%, #8c7347 50%, #c9a84c 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* 星空渐变文字 */
+  .gradient-text-cosmos {
+    background: linear-gradient(135deg, #3d2868 0%, #1e4d8c 50%, #c9a84c 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+
+  /* 平滑滚动优化 */
+  * {
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  /* 选中文字样式 */
+  ::selection {
+    background-color: #ede6da;
+    color: #6b6054;
+  }
+}
+
+@layer components {
+  /* 毛玻璃效果 */
+  .glass {
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+  }
+
+  /* 暖色主题按钮 */
+  .btn-primary {
+    @apply relative overflow-hidden rounded-full px-10 py-4 font-medium text-white transition-all duration-300;
+    transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
+    background: linear-gradient(135deg, #b0a088 0%, #c5b89f 100%);
+    box-shadow: 0 4px 16px rgba(176, 160, 136, 0.2);
+  }
+
+  .btn-primary:hover {
+    transform: scale(1.05) translateY(-2px);
+    box-shadow: 0 8px 32px rgba(176, 160, 136, 0.28);
+  }
+
+  .btn-primary:active {
+    transform: scale(0.98);
+  }
+
+  .btn-secondary {
+    @apply rounded-full px-10 py-4 font-medium transition-all duration-300;
+    transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
+    border-width: 2px;
+    border-color: #c5b89f;
+    color: #57534e;
+  }
+
+  .btn-secondary:hover {
+    border-color: #d4c8b4;
+    background-color: #faf7f2;
+  }
+
+  .btn-secondary:active {
+    transform: scale(0.98);
+  }
+
+  /* 卡片悬浮效果 */
+  .card-hover {
+    @apply transition-all duration-300;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .card-hover:hover {
+    transform: translateY(-4px);
+    box-shadow: 0 8px 32px rgba(140, 115, 71, 0.12);
+  }
+
+  /* 滚动动画入场效果 */
+  .animate-on-scroll {
+    opacity: 0;
+    transform: translateY(30px);
+  }
+
+  /* 渐变连接线 - 金棕 */
+  .gradient-line {
+    background: linear-gradient(90deg, #c5b89f 0%, #b0a088 50%, #c5b89f 100%);
+    height: 1px;
+  }
+
+  /* 移动端垂直渐变线 */
+  .gradient-line-vertical {
+    background: linear-gradient(180deg, #c5b89f 0%, #b0a088 50%, #c5b89f 100%);
+    width: 1px;
+  }
+
+  /* 星空渐变线 */
+  .gradient-line-cosmos {
+    background: linear-gradient(90deg, #3d2868 0%, #1e4d8c 50%, #c9a84c 100%);
+    height: 1px;
+  }
+
+  /* 导航栏样式 */
+  .navbar {
+    @apply fixed top-0 left-0 right-0 z-50 h-16 transition-all duration-300;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    background: rgba(253, 252, 250, 0.75);
+    backdrop-filter: blur(20px) saturate(180%);
+    -webkit-backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid rgba(176, 160, 136, 0.08);
+  }
+
+  .navbar.scrolled {
+    background: rgba(253, 252, 250, 0.92);
+    box-shadow: 0 1px 12px rgba(176, 160, 136, 0.08);
+  }
+
+  /* iPhone 模型卡片 */
+  .iphone-mockup {
+    @apply relative mx-auto overflow-hidden rounded-[40px] bg-white;
+    border-width: 8px;
+    border-color: #ede6da;
+    max-width: 380px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 16px 64px rgba(0, 0, 0, 0.06);
+  }
+
+  .iphone-mockup::before {
+    content: '';
+    @apply absolute left-1/2 top-0 z-10 h-6 w-32 -translate-x-1/2 rounded-b-2xl;
+    background-color: #ede6da;
+  }
+
+  /* 测评页面容器 */
+  .assessment-container {
+    @apply mx-auto w-full max-w-2xl px-4;
+  }
+
+  /* 对话消息气泡 */
+  .message-ai {
+    @apply rounded-3xl rounded-tl-md px-6 py-4 text-sm leading-relaxed;
+    color: #44403c;
+    background: linear-gradient(135deg, rgba(250, 247, 242, 0.9) 0%, rgba(237, 230, 218, 0.7) 100%);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    box-shadow: 0 2px 8px rgba(176, 160, 136, 0.06);
+  }
+
+  .message-user {
+    @apply rounded-3xl rounded-tr-md px-6 py-4 text-sm leading-relaxed text-white;
+    background: linear-gradient(135deg, #b0a088 0%, #c5b89f 100%);
+    box-shadow: 0 4px 12px rgba(176, 160, 136, 0.2);
+  }
+
+  /* 星空背景卡片 */
+  .cosmos-card {
+    @apply overflow-hidden;
+    border-radius: 20px;
+    background: linear-gradient(135deg, rgba(26, 18, 38, 0.9) 0%, rgba(61, 40, 104, 0.7) 50%, rgba(30, 77, 140, 0.6) 100%);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid rgba(201, 168, 76, 0.2);
+    box-shadow: 0 8px 32px rgba(26, 18, 38, 0.3), inset 0 1px 0 rgba(201, 168, 76, 0.15);
+  }
+
+  /* 暖色卡片 */
+  .warm-card {
+    @apply overflow-hidden;
+    border-radius: 20px;
+    background: rgba(255, 255, 255, 0.7);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(176, 160, 136, 0.08);
+    box-shadow: 0 4px 24px rgba(176, 160, 136, 0.06);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .warm-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 32px rgba(176, 160, 136, 0.1);
+  }
+
+  /* 输入框样式 */
+  .chat-input {
+    @apply w-full rounded-full px-6 py-4 text-sm outline-none transition-all duration-300;
+    transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
+    border-width: 1px;
+    border-color: #ede6da;
+    background: rgba(253, 252, 250, 0.8);
+    color: #44403c;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .chat-input::placeholder {
+    color: #c5b89f;
+  }
+
+  .chat-input:focus {
+    border-color: #d4c8b4;
+    background-color: #fff;
+    box-shadow: 0 0 0 4px rgba(176, 160, 136, 0.08);
+  }
+
+  /* 选项按钮 */
+  .option-chip {
+    @apply inline-flex items-center gap-2 rounded-full bg-white px-5 py-3 text-sm font-medium transition-all duration-300 cursor-pointer;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    border-width: 2px;
+    border-color: #ede6da;
+    color: #44403c;
+  }
+
+  .option-chip:hover {
+    border-color: #d4c8b4;
+    background-color: #faf7f2;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(176, 160, 136, 0.1);
+  }
+
+  .option-chip.selected {
+    border-color: #b0a088;
+    background: linear-gradient(135deg, rgba(176, 160, 136, 0.08) 0%, rgba(197, 184, 159, 0.08) 100%);
+    box-shadow: 0 2px 8px rgba(176, 160, 136, 0.15);
+  }
+
+  /* 进度条 */
+  .progress-bar {
+    @apply h-1.5 rounded-full overflow-hidden;
+    background-color: #faf7f2;
+  }
+
+  .progress-fill {
+    @apply h-full rounded-full transition-all duration-500;
+    transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
+    background: linear-gradient(90deg, #c5b89f 0%, #b0a088 100%);
+  }
+
+  /* 星空粒子效果 */
+  .star-particle {
+    position: absolute;
+    width: 2px;
+    height: 2px;
+    background: rgba(201, 168, 76, 0.6);
+    border-radius: 50%;
+    animation: twinkle 2s ease-in-out infinite;
+  }
+
+  @keyframes twinkle {
+    0%, 100% { opacity: 0.3; }
+    50% { opacity: 1; }
+  }
+}
