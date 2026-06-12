@@ -4,3 +4,12 @@ dist/
 *.local
 .env
 .env.*
+
+# Backend
+backend/.venv/
+backend/__pycache__/
+backend/**/__pycache__/
+backend/*.db
+backend/*.db-*
+backend/uv.lock
+backend/.python-version
