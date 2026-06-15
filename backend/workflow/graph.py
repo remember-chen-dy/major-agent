@@ -1,11 +1,11 @@
-"""LangGraph 测评工作流 —— 10 题独立节点 → ReWOO 报告生成
+"""LangGraph 测评工作流 —— 独立问题节点 → Markdown 报告生成
 
 图结构（线性链）：
-    START → q1_score → q2_subject → ... → q10_expect
-          → planner → executor → solver → pdf_generator → END
+    START → q1_score → q2_subject → ... → q12_expect
+          → planner → executor → solver → markdown_done → END
 
 - 每个问题节点后设置 interrupt_after，暂停等待前端提交答案
-- ReWOO 管线（planner/executor/solver/pdf_generator）无中断，一路跑到底
+- 报告管线（planner/executor/solver/markdown_done）无中断，一路跑到底
 - 答案由 assessment_service 通过 Command(resume=None, update={...}) 写入 state
 - 使用 AsyncSqliteSaver checkpointer 持久化会话状态
 """
@@ -32,11 +32,11 @@ async def init_assessment_graph() -> StateGraph:
         node_fn = make_question_node(step_name)
         builder.add_node(step_name, node_fn)
 
-    # ── 添加 ReWOO 管线节点 ──
+    # ── 添加报告管线节点 ──
     builder.add_node("planner", planner_node)
     builder.add_node("executor", executor_node)
     builder.add_node("solver", solver_node)
-    builder.add_node("pdf_generator", pdf_generator_node)
+    builder.add_node("markdown_done", pdf_generator_node)
 
     # ── 设置入口：从第一题开始 ──
     builder.set_entry_point(QUESTION_ORDER[0])
@@ -45,14 +45,14 @@ async def init_assessment_graph() -> StateGraph:
     for i in range(len(QUESTION_ORDER) - 1):
         builder.add_edge(QUESTION_ORDER[i], QUESTION_ORDER[i + 1])
 
-    # ── q10_expect → planner（进入 ReWOO 管线） ──
+    # ── 最后一题 → planner（进入报告管线） ──
     builder.add_edge(QUESTION_ORDER[-1], "planner")
 
-    # ── ReWOO 管线（无中断） ──
+    # ── 报告管线（无中断） ──
     builder.add_edge("planner", "executor")
     builder.add_edge("executor", "solver")
-    builder.add_edge("solver", "pdf_generator")
-    builder.add_edge("pdf_generator", END)
+    builder.add_edge("solver", "markdown_done")
+    builder.add_edge("markdown_done", END)
 
     # ── Checkpointer：手动管理连接 ──
     conn = await aiosqlite.connect("checkpoints.db")

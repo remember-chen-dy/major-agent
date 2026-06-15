@@ -1,4 +1,4 @@
-"""10 个预设问题配置 + 节点工厂函数
+"""12 个预设问题配置 + 节点工厂函数
 
 每个问题节点不调用 LLM，所有引导语为预设文案。
 节点仅生成 AIMessage 并返回，不做 interrupt() 调用 ——
@@ -14,7 +14,7 @@ from workflow.state import AssessmentState
 
 QUESTION_CONFIG = {
     "q1_score": {
-        "guidance": "同学你好！咱们先从最基本的信息开始：你的模考或高考预估分数是多少分？全省排名（位次）大概在什么范围？",
+        "guidance": "同学你好呀！👋 很高兴见到你。我是你的高考志愿规划顾问，你可以叫我张老师。我知道现在这个阶段，面对几百个专业和上千所院校，很多同学都觉得特别迷茫——这很正常，不用焦虑，咱们一步步来。",
         "interaction": {
             "type": "form",
             "fields": [
@@ -25,16 +25,57 @@ QUESTION_CONFIG = {
         "next": "q2_subject",
     },
     "q2_subject": {
-        "guidance": "接下来了解一下你的选科情况。你选了哪些科目？可多选哦。",
+        "guidance": "语数英为必考科目，请再从以下科目中选择 3 门作为选考科目。",
         "interaction": {
             "type": "tag_multi_select",
             "tags": ["物理", "化学", "生物", "历史", "地理", "政治"],
-            "min_select": 1,
-            "max_select": 6,
+            "min_select": 3,
+            "max_select": 3,
+            "preset_subjects": ["语文", "数学", "英语"],
         },
-        "next": "q3_city",
+        "next": "q3_province",
     },
-    "q3_city": {
+    "q3_province": {
+        "guidance": "你来自哪个省份（高考所在省）？不同省份的录取政策和竞争情况差别很大哦。",
+        "interaction": {
+            "type": "button_select",
+            "options": [
+                {"value": "北京", "label": "北京"},
+                {"value": "天津", "label": "天津"},
+                {"value": "河北", "label": "河北"},
+                {"value": "山西", "label": "山西"},
+                {"value": "内蒙古", "label": "内蒙古"},
+                {"value": "辽宁", "label": "辽宁"},
+                {"value": "吉林", "label": "吉林"},
+                {"value": "黑龙江", "label": "黑龙江"},
+                {"value": "上海", "label": "上海"},
+                {"value": "江苏", "label": "江苏"},
+                {"value": "浙江", "label": "浙江"},
+                {"value": "安徽", "label": "安徽"},
+                {"value": "福建", "label": "福建"},
+                {"value": "江西", "label": "江西"},
+                {"value": "山东", "label": "山东"},
+                {"value": "河南", "label": "河南"},
+                {"value": "湖北", "label": "湖北"},
+                {"value": "湖南", "label": "湖南"},
+                {"value": "广东", "label": "广东"},
+                {"value": "广西", "label": "广西"},
+                {"value": "海南", "label": "海南"},
+                {"value": "重庆", "label": "重庆"},
+                {"value": "四川", "label": "四川"},
+                {"value": "贵州", "label": "贵州"},
+                {"value": "云南", "label": "云南"},
+                {"value": "西藏", "label": "西藏"},
+                {"value": "陕西", "label": "陕西"},
+                {"value": "甘肃", "label": "甘肃"},
+                {"value": "青海", "label": "青海"},
+                {"value": "宁夏", "label": "宁夏"},
+                {"value": "新疆", "label": "新疆"},
+            ],
+        },
+        "next": "q4_city",
+    },
+    "q4_city": {
         "guidance": "关于大学所在的城市，你心里有偏好吗？",
         "interaction": {
             "type": "button_select",
@@ -44,9 +85,9 @@ QUESTION_CONFIG = {
                 {"value": "偏远也行", "label": "偏远一点也行——好学校在哪我就去哪"},
             ],
         },
-        "next": "q4_energy",
+        "next": "q5_energy",
     },
-    "q4_energy": {
+    "q5_energy": {
         "guidance": "在社交场合里，你的能量来源更偏向哪一种？",
         "interaction": {
             "type": "button_select",
@@ -55,20 +96,47 @@ QUESTION_CONFIG = {
                 {"value": "I", "label": "🔵 独处充电（I）——独处/小圈子才是我恢复精力的方式"},
             ],
         },
-        "next": "q5_cognition",
+        "next": "q6_mbti",
     },
-    "q5_cognition": {
+    "q6_mbti": {
+        "guidance": "你了解自己的 MBTI 类型吗？选一个最符合你的。不确定的话可以凭直觉选~",
+        "interaction": {
+            "type": "button_select",
+            "searchable": True,
+            "options": [
+                {"value": "INTJ", "label": "INTJ 建筑师——独立、战略、果断"},
+                {"value": "INTP", "label": "INTP 逻辑学家——创新、好奇、爱分析"},
+                {"value": "ENTJ", "label": "ENTJ 指挥官——大胆、有远见、领导力"},
+                {"value": "ENTP", "label": "ENTP 辩论家——机智、好奇、爱挑战"},
+                {"value": "INFJ", "label": "INFJ 提倡者——安静、有洞察、理想主义"},
+                {"value": "INFP", "label": "INFP 调停者——诗意、善良、追求意义"},
+                {"value": "ENFJ", "label": "ENFJ 主人公——热情、利他、有魅力"},
+                {"value": "ENFP", "label": "ENFP 竞选者——热情、创意、自由"},
+                {"value": "ISTJ", "label": "ISTJ 物流师——务实、可靠、注重事实"},
+                {"value": "ISFJ", "label": "ISFJ 守卫者——专注、温暖、守护"},
+                {"value": "ESTJ", "label": "ESTJ 总经理——高效、管理、执行力"},
+                {"value": "ESFJ", "label": "ESFJ 执政官——关心、善于合作、热心"},
+                {"value": "ISTP", "label": "ISTP 鉴赏家——大胆、实操、爱动手"},
+                {"value": "ISFP", "label": "ISFP 探险家——灵活、迷人、探索者"},
+                {"value": "ESTP", "label": "ESTP 企业家——精力旺盛、敏锐、享受冒险"},
+                {"value": "ESFP", "label": "ESFP 表演者——即兴、外向、活在当下"},
+            ],
+        },
+        "next": "q7_cognition",
+    },
+    "q7_cognition": {
         "guidance": "思考问题的时候，你的风格更接近哪一种？",
         "interaction": {
-            "type": "slider",
-            "min": 0,
-            "max": 100,
-            "left_label": "步步为营——我喜欢按部就班，扎实走好每一步",
-            "right_label": "天马行空——我喜欢发散跳跃，在脑海里自由驰骋",
+            "type": "button_select",
+            "options": [
+                {"value": "step_by_step", "label": "步步为营——我喜欢按部就班，扎实走好每一步"},
+                {"value": "free_association", "label": "天马行空——我喜欢发散跳跃，在脑海里自由驰骋"},
+                {"value": "balanced", "label": "两者之间——根据情况灵活切换"}
+            ]
         },
-        "next": "q6_flow",
+        "next": "q8_flow"
     },
-    "q6_flow": {
+    "q8_flow": {
         "guidance": "做什么事情会让你忘记时间、完全沉浸其中？可多选，也可以补充你自己的答案。",
         "interaction": {
             "type": "tag_multi_select",
@@ -83,20 +151,21 @@ QUESTION_CONFIG = {
             "allow_custom": True,
             "custom_placeholder": "其他让我心流的事...",
         },
-        "next": "q7_pressure",
+        "next": "q9_pressure",
     },
-    "q7_pressure": {
-        "guidance": "面对压力的时候，你更倾向于哪种状态？",
-        "interaction": {
-            "type": "slider",
-            "min": 0,
-            "max": 100,
-            "left_label": "乘风破浪——压力越大我越兴奋，喜欢挑战",
-            "right_label": "岁月静好——我想要安稳、低压力的学习与生活节奏",
+        "q9_pressure": {
+            "guidance": "面对压力的时候，你更倾向于哪种状态？",
+            "interaction": {
+                "type": "button_select",
+                "options": [
+                    {"value": "thrive", "label": "乘风破浪——压力越大我越兴奋，喜欢挑战"},
+                    {"value": "calm", "label": "岁月静好——我想要安稳、低压力的学习与生活节奏"},
+                    {"value": "moderate", "label": "适中有度——能接受一定压力，但不喜欢过度"}
+                ]
+            },
+            "next": "q10_family"
         },
-        "next": "q8_family",
-    },
-    "q8_family": {
+    "q10_family": {
         "guidance": "你的家庭在升学这件事上能提供什么样的资源？",
         "interaction": {
             "type": "button_select",
@@ -106,9 +175,9 @@ QUESTION_CONFIG = {
                 {"value": "resource_low", "label": "全靠自己拼"},
             ],
         },
-        "next": "q9_taboos",
+        "next": "q11_taboos",
     },
-    "q9_taboos": {
+    "q11_taboos": {
         "guidance": "有没有你绝对不想碰的领域或场景？勾选所有让你心生抗拒的。不选也没关系~",
         "interaction": {
             "type": "tag_multi_select",
@@ -122,9 +191,9 @@ QUESTION_CONFIG = {
             ],
             "min_select": 0,
         },
-        "next": "q10_expect",
+        "next": "q12_expect",
     },
-    "q10_expect": {
+    "q12_expect": {
         "guidance": "最后一个问题，也是最重要的——你希望大学四年最终带给你什么？三选一。",
         "interaction": {
             "type": "button_select",
@@ -166,7 +235,7 @@ def make_question_node(step_name: str):
             content=guidance,
             additional_kwargs={"interaction": interaction, "question_id": step_name},
         )
-    
+
         return {
             "messages": [ai_msg],
             "current_step": step_name,
@@ -182,8 +251,8 @@ def make_question_node(step_name: str):
 # ============================================================
 
 QUESTION_ORDER = [
-    "q1_score", "q2_subject", "q3_city", "q4_energy", "q5_cognition",
-    "q6_flow", "q7_pressure", "q8_family", "q9_taboos", "q10_expect",
+    "q1_score", "q2_subject", "q3_province", "q4_city", "q5_energy", "q6_mbti",
+    "q7_cognition", "q8_flow", "q9_pressure", "q10_family", "q11_taboos", "q12_expect",
 ]
 
 

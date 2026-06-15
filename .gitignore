@@ -1,15 +1,51 @@
-node_modules/
-dist/
-.DS_Store
-*.local
-.env
-.env.*
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
 
-# Backend
-backend/.venv/
-backend/__pycache__/
-backend/**/__pycache__/
-backend/*.db
-backend/*.db-*
-backend/uv.lock
-backend/.python-version
+# Database
+*.db
+*.db-shm
+*.db-wal
+checkpoints.db*
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Environment
+.env
+.env.local
+backend/.env
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Build
+*.egg-info/
+dist/
+build/
+
+# Temporary files
+*.tmp
+*.bak
+*.cache

@@ -1,31 +1,33 @@
-"""ReWOO 模式的 final_agent —— 仅 2 次 LLM 调用
+"""ReWOO 三节点报告生成器 —— Planner/Executor/Solver
 
-Planner（第1次 LLM）：输入用户画像 → 输出 JSON 工具调用计划
-Executor（纯代码）：按计划执行 4 个工具
-Solver（第2次 LLM）：输入画像 + 工具结果 → 输出 Markdown 报告
+使用 4 个独立工具分析考生画像，生成志愿规划报告。
 """
 import json
 from datetime import datetime
 
+from duckduckgo_search import DDGS
 from langchain_core.messages import AIMessage
-from langchain_community.tools import DuckDuckGoSearchRun
 
 from config.llm import get_llm
 from workflow.state import AssessmentState
 
+
 # ============================================================
-# 工具实现（纯函数，不调 LLM）
+# 4 个分析工具
 # ============================================================
 
 
 def _score_band_analyzer(score: int, rank: int) -> str:
     """根据分数和位次分析院校层次（优先使用网络搜索获取最新数据）"""
     try:
-        search = DuckDuckGoSearchRun()
         year = datetime.now().year
-        search_result = search.invoke(
-            f"{year}高考{score}分 位次{rank} 能报考什么大学 冲稳保策略"
-        )
+        query = f"{year}高考{score}分 位次{rank} 能报考什么大学 冲稳保策略"
+
+        # 使用新版 DuckDuckGo API
+        with DDGS() as ddgs:
+            search_results = list(ddgs.text(query, max_results=5))
+            search_result = "\n".join([r.get("body", "") for r in search_results])
+
         llm = get_llm()
         band_analysis = llm.invoke(
             f"根据以下搜索结果，为一位高考{score}分、全省位次{rank}名的考生"
@@ -34,11 +36,11 @@ def _score_band_analyzer(score: int, rank: int) -> str:
         )
         return f"""## 成绩定位分析（基于 {year} 年网络数据）
         
-        - **分数**：{score} 分
-        - **位次**：全省第 {rank} 名
+- **分数**：{score} 分
+- **位次**：全省第 {rank} 名
 
-        {band_analysis.content}
-        """
+{band_analysis.content}
+"""
     except Exception:
         # 搜索失败时使用降级方案
         if score >= 650:
@@ -76,9 +78,9 @@ def _score_band_analyzer(score: int, rank: int) -> str:
 def _major_matcher(
     subjects: list[str],
     energy: str,
-    cognition: int,
+    cognition: str,
     flow_tags: list[str],
-    pressure: int,
+    pressure: str,
     expectation: str,
     taboos: list[str],
 ) -> str:
@@ -225,14 +227,16 @@ def _build_user_profile(answers: dict) -> dict:
     profile["rank"] = q1.get("rank", "未知")
 
     profile["subjects"] = answers.get("q2_subject", [])
-    profile["city_pref"] = answers.get("q3_city", "未知")
-    profile["energy"] = answers.get("q4_energy", "未知")
-    profile["cognition"] = answers.get("q5_cognition", 50)
-    profile["flow_tags"] = answers.get("q6_flow", [])
-    profile["pressure"] = answers.get("q7_pressure", 50)
-    profile["family_resource"] = answers.get("q8_family", "未知")
-    profile["taboos"] = answers.get("q9_taboos", [])
-    profile["expectation"] = answers.get("q10_expect", "未知")
+    profile["province"] = answers.get("q3_province", "未知")
+    profile["city_pref"] = answers.get("q4_city", "未知")
+    profile["energy"] = answers.get("q5_energy", "未知")
+    profile["mbti"] = answers.get("q6_mbti", "未知")
+    profile["cognition"] = answers.get("q7_cognition", "未知")
+    profile["flow_tags"] = answers.get("q8_flow", [])
+    profile["pressure"] = answers.get("q9_pressure", "未知")
+    profile["family_resource"] = answers.get("q10_family", "未知")
+    profile["taboos"] = answers.get("q11_taboos", [])
+    profile["expectation"] = answers.get("q12_expect", "未知")
 
     return profile
 
@@ -250,22 +254,22 @@ async def planner_node(state: AssessmentState) -> dict:
 
     planner_prompt = f"""你是一位高考志愿规划专家。根据以下考生的10项测评结果，规划需要调用的分析工具及其参数。
 
-        ## 考生画像
-        {json.dumps(user_profile, ensure_ascii=False, indent=2)}
+## 考生画像
+{json.dumps(user_profile, ensure_ascii=False, indent=2)}
 
-        ## 可用工具
-        1. score_band_analyzer(score: int, rank: int) — 分析分数位次对应的院校层次
-        2. major_matcher(subjects, energy, cognition, flow_tags, pressure, expectation, taboos) — 匹配专业方向
-        3. taboo_filter(taboos, matched_majors) — 基于雷区过滤不适合的专业
-        4. city_advisor(city_pref, score_band, family_resource) — 城市与院校选择建议
+## 可用工具
+1. score_band_analyzer(score: int, rank: int) — 分析分数位次对应的院校层次
+2. major_matcher(subjects, energy, cognition, flow_tags, pressure, expectation, taboos) — 匹配专业方向
+3. taboo_filter(taboos, matched_majors) — 基于雷区过滤不适合的专业
+4. city_advisor(city_pref, score_band, family_resource) — 城市与院校选择建议
 
-        请输出一个 JSON 数组，按合理的调用顺序列出需要执行的工具：
-        ```json
-        [{{"tool": "score_band_analyzer", "args": {{"score": {user_profile['score']}, "rank": {user_profile['rank']}}}}}, ...]
-        ```
+请输出一个 JSON 数组，按合理的调用顺序列出需要执行的工具：
+```json
+[{{"tool": "score_band_analyzer", "args": {{"score": {user_profile['score']}, "rank": {user_profile['rank']}}}}}, ...]
+```
 
-        只输出 JSON 数组，不要任何额外文字。
-        """
+只输出 JSON 数组，不要任何额外文字。
+"""
 
     response = await llm.ainvoke(planner_prompt)
     content = response.content.strip()
@@ -285,9 +289,9 @@ async def planner_node(state: AssessmentState) -> dict:
             {"tool": "major_matcher", "args": {
                 "subjects": user_profile.get("subjects", []),
                 "energy": str(user_profile.get("energy", "")),
-                "cognition": user_profile.get("cognition", 50),
+                "cognition": str(user_profile.get("cognition", "")),
                 "flow_tags": user_profile.get("flow_tags", []),
-                "pressure": user_profile.get("pressure", 50),
+                "pressure": str(user_profile.get("pressure", "")),
                 "expectation": str(user_profile.get("expectation", "")),
                 "taboos": user_profile.get("taboos", []),
             }},
@@ -344,59 +348,56 @@ async def solver_node(state: AssessmentState) -> dict:
     tool_results = state.get("tool_results", {})
 
     solver_prompt = f"""
-    你是一位温暖而专业的高考志愿规划师。根据以下信息，为考生撰写一份完整的志愿规划报告。
+你是一位温暖而专业的高考志愿规划师。根据以下信息，为考生撰写一份完整的志愿规划报告。
 
-    ## 考生画像
-    {json.dumps(user_profile, ensure_ascii=False, indent=2)}
+## 考生画像
+{json.dumps(user_profile, ensure_ascii=False, indent=2)}
 
-    ## 工具分析结果
-    {json.dumps(tool_results, ensure_ascii=False, indent=2)}
+## 工具分析结果
+{json.dumps(tool_results, ensure_ascii=False, indent=2)}
 
-    请用 Markdown 格式输出报告，包含以下章节：
+请用 Markdown 格式输出报告，包含以下章节：
 
-    # 🎓 高考志愿规划报告
+# 🎓 高考志愿规划报告
 
-    ## 一、成绩定位
-    基于分数和位次，分析考生所处竞争层次，给出总体判断。
+## 一、成绩定位
+基于分数和位次，分析考生所处竞争层次，给出总体判断。
 
-    ## 二、冲稳保院校推荐
-    用表格列出冲刺、稳妥、保底三个层次的推荐院校（每个层次 2-3 所）。
+## 二、冲稳保院校推荐
+用表格列出冲刺、稳妥、保底三个层次的推荐院校（每个层次 2-3 所）。
 
-    ## 三、专业方向建议
-    推荐 3-5 个最匹配的专业，说明理由和就业前景。
+## 三、专业方向建议
+推荐 3-5 个最匹配的专业，说明理由和就业前景。
 
-    ## 四、专业四年后就业前景分析
-    分析专业四年后就业前景，包括就业率、薪资范围、工作环境等。
+## 四、专业四年后就业前景分析
+分析专业四年后就业前景，包括就业率、薪资范围、工作环境等。
 
-    ## 五、避坑提醒
-    基于雷区标签和考生特点，提醒需要避开的方向和常见误区。
+## 五、避坑提醒
+基于雷区标签和考生特点，提醒需要避开的方向和常见误区。
 
-    ## 六、城市与院校选择策略
-    结合城市偏好和考生特点，提醒需要避开的方向和常见误区。
+## 六、城市与院校选择策略
+结合城市偏好和考生特点，提醒需要避开的方向和常见误区。
 
-    ## 七、城市与院校选择策略
-    结合城市偏好和家庭资源，给出择校地理策略。
+## 七、个性化结语
+温暖鼓励的结尾，让考生感到被理解和支持。
 
-    ## 八、个性化结语 
-    温暖鼓励的结尾，让考生感到被理解和支持。
+### 语言要求
+- 亲切、专业、有温度
+- 像一位关心学生的老师在认真给出建议
+- 不要过于绝对化的表述
+- 对于分数偏低的同学给予鼓励，对分数较高的同学给予肯定
+- 对于专业方向建议，要根据考生的个人特点和目标，给出符合其需求的专业建议
+- 对于避坑提醒，要根据考生的个人特点和目标，给出符合其需求的避坑建议
+- 使用「建议」「可以考虑」「值得关注」等措辞
 
-    ### 语言要求
-    - 亲切、专业、有温度
-    - 像一位关心学生的老师在认真给出建议
-    - 不要过于绝对化的表述
-    - 对于分数偏低的同学给予鼓励，对分数较高的同学给予肯定
-    - 对于专业方向建议，要根据考生的个人特点和目标，给出符合其需求的专业建议
-    - 对于避坑提醒，要根据考生的个人特点和目标，给出符合其需求的避坑建议
-    - 使用「建议」「可以考虑」「值得关注」等措辞
-
-    ### 补充要求
-    - **结合用户画像的具体细节**：提到心流时刻、性格倾向时，引用用户原话或具体标签，例如「你提到喜欢拆解组装东西，这正是机械/电子类专业的核心乐趣」，让用户感觉被真正理解
-    - **避免制造焦虑**：不使用「天坑专业」「毕业即失业」等恐慌性表述，改从「这个方向目前竞争激烈，建议同步关注 XX 作为备选」的角度
-    - **给出下一步行动**：每章节末尾留一个具体的行动建议，例如「建议去 B 站搜这两个专业的大三课表看看，感受一下实际学什么」
-    - **承认不确定性**：对于预测性内容（就业趋势、行业前景），加「基于当前趋势」「未来可能有变化」等限定词，不把话说死
-    - **口语化但不过分随意**：可以偶尔用「其实」「说实话」「帮你捋一捋」这类词，但避免「绝绝子」「码住」「家人们」等网络用语
-    - **逻辑链条完整**：推荐一个专业时，必须说清「因为你的 XX 特质 + XX 外部条件 → 所以推荐 XX」，让用户理解推导过程而非被动接受结论
-    - **报告长度控制在 1500-2500 字**：太短显得敷衍，太长没人看完。冲稳保表格不计入字数
+### 补充要求
+- **结合用户画像的具体细节**：提到心流时刻、性格倾向时，引用用户原话或具体标签，例如「你提到喜欢拆解组装东西，这正是机械/电子类专业的核心乐趣」，让用户感觉被真正理解
+- **避免制造焦虑**：不使用「天坑专业」「毕业即失业」等恐慌性表述，改从「这个方向目前竞争激烈，建议同步关注 XX 作为备选」的角度
+- **给出下一步行动**：每章节末尾留一个具体的行动建议，例如「建议去 B 站搜这两个专业的大三课表看看，感受一下实际学什么」
+- **承认不确定性**：对于预测性内容（就业趋势、行业前景），加「基于当前趋势」「未来可能有变化」等限定词，不把话说死
+- **口语化但不过分随意**：可以偶尔用「其实」「说实话」「帮你捋一捋」这类词，但避免「绝绝子」「码住」「家人们」等网络用语
+- **逻辑链条完整**：推荐一个专业时，必须说清「因为你的 XX 特质 + XX 外部条件 → 所以推荐 XX」，让用户理解推导过程而非被动接受结论
+- **报告长度控制在 1500-2500 字**：太短显得敷衍，太长没人看完。冲稳保表格不计入字数
 """
 
     response = await llm.ainvoke(solver_prompt)
@@ -405,5 +406,5 @@ async def solver_node(state: AssessmentState) -> dict:
     return {
         "report": report,
         "messages": [AIMessage(content=report)],
-        "current_step": "pdf_ge nerator",
+        "current_step": "markdown_done",
     }
