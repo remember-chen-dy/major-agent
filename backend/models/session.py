@@ -64,6 +64,11 @@ class Session(Base):
         nullable=True,
         comment="对象存储文件 key",
     )
+    report: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+        comment="生成的报告内容 (Markdown)",
+    )
     langgraph_thread_id: Mapped[str | None] = mapped_column(
         String(255),
         nullable=True,

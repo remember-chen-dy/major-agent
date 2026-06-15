@@ -151,7 +151,7 @@ function renderMarkdown(md: string): string {
 }
 
 const goHome = () => {
-  router.push('/');
+  router.push({ path: '/', query: { fromReport: '1' } });
 };
 
 const goAssessment = () => {

@@ -1,12 +1,17 @@
 <script setup lang="ts">
 import { onMounted, onUnmounted, ref } from 'vue';
 import { useRouter } from 'vue-router';
+import { useAuthStore } from '../stores/auth';
+import { useSessionStore } from '../stores/session';
+import { api } from '../api';
 
 // ============================================================
 // 状态管理
 // ============================================================
 
 const router = useRouter();
+const authStore = useAuthStore();
+const sessionStore = useSessionStore();
 
 /** 导航栏滚动状态 */
 const isScrolled = ref(false);
@@ -53,7 +58,28 @@ const handleScroll = () => {
   isScrolled.value = window.scrollY > 20;
 };
 
-onMounted(() => {
+onMounted(async () => {
+  // 检查 URL 参数，如果 fromReport=1，说明用户从报告页面主动返回首页，跳过自动跳转
+  const urlParams = new URLSearchParams(window.location.search);
+  const fromReport = urlParams.get('fromReport');
+
+  if (!fromReport) {
+    // 检查用户是否有已完成的报告
+    try {
+      await authStore.login();
+      if (authStore.userId) {
+        const reportData = await sessionStore.checkLatestReport(authStore.userId);
+        if (reportData?.has_report && reportData.session_id) {
+          // 有已完成的报告，跳转到报告页面
+          router.replace(`/report/${reportData.session_id}`);
+          return;
+        }
+      }
+    } catch (error) {
+      console.error('检查报告失败:', error);
+    }
+  }
+
   window.addEventListener('scroll', handleScroll, { passive: true });
   initScrollAnimations();
 });

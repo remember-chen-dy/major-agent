@@ -74,3 +74,35 @@ async def get_user_sessions(
             for s in sessions
         ]
     }
+
+
+@router.get("/users/{user_id}/latest-report")
+async def get_latest_completed_report(
+    user_id: str,
+    db: AsyncSession = Depends(get_db)
+):
+    """获取用户最新已完成的报告"""
+    result = await db.execute(
+        select(Session)
+        .where(
+            Session.user_id == user_id,
+            Session.report_status == "completed",
+            Session.report.isnot(None),
+        )
+        .order_by(Session.updated_at.desc())
+        .limit(1)
+    )
+    session = result.scalar_one_or_none()
+
+    if not session:
+        return {
+            "has_report": False,
+            "session_id": None,
+            "created_at": None,
+        }
+
+    return {
+        "has_report": True,
+        "session_id": str(session.id),
+        "created_at": session.created_at.isoformat() if session.created_at else None,
+    }

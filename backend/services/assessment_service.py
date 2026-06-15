@@ -387,6 +387,7 @@ async def _run_report_pipeline(session_id: str, thread_id: str, cmd: Command):
                 updated_session.report_progress = 100
                 updated_session.report_url = ""
                 updated_session.report_file_key = ""
+                updated_session.report = result.get("report", "")
                 await db.commit()
     except Exception as e:
         print(f"❌ 报告生成失败: session={session_id}, error={e}")

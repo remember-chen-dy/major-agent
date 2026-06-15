@@ -645,8 +645,15 @@ onMounted(async () => {
             reportStatus: latestSession.report_status,
             reportProgress: latestSession.report_progress,
             reportUrl: latestSession.report_url,
+            report: latestSession.report,
           }];
           currentSessionId.value = latestSession.session_id;
+
+          // 如果已有报告，直接跳转到报告查看页面
+          if (latestSession.report_status === 'completed' && latestSession.report) {
+            router.replace(`/report/${latestSession.session_id}`);
+            return;
+          }
 
           if (sessions.value[0].messages.length === 0) {
             await sessionStore.loadSessionMessages(latestSession.session_id).catch(() => null);

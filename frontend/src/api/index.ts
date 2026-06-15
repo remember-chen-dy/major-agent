@@ -43,6 +43,9 @@ export const api = {
   getUserSessions: (userId: string) =>
     request(`/api/users/${userId}/sessions`),
 
+  getLatestReport: (userId: string) =>
+    request(`/api/users/${userId}/latest-report`),
+
   // 会话相关
   createSession: (title?: string) =>
     request('/api/sessions', {

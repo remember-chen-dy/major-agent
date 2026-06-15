@@ -208,6 +208,24 @@ export const useSessionStore = defineStore('session', () => {
     return createSession('志愿测评');
   };
 
+  /**
+   * 检查用户是否有已完成的报告
+   * 如果有，返回最新的报告信息；否则返回 null
+   */
+  const checkLatestReport = async (userId: string): Promise<{
+    has_report: boolean;
+    session_id: string | null;
+    created_at: string | null;
+  } | null> => {
+    try {
+      const data = await api.getLatestReport(userId);
+      return data;
+    } catch (error) {
+      console.error('检查最新报告失败:', error);
+      return null;
+    }
+  };
+
   return {
     currentSessionId,
     sessions,
@@ -229,5 +247,6 @@ export const useSessionStore = defineStore('session', () => {
     clearCurrentSession,
     deleteSession,
     restartAssessment,
+    checkLatestReport,
   };
 });

@@ -65,6 +65,7 @@ class ReportService:
                 session.report_progress = 100
                 session.report_url = ""
                 session.report_file_key = ""
+                session.report = report
                 await db.commit()
 
             print(f"✅ Markdown 报告生成完成: session={session_id}, user={user_id}")
