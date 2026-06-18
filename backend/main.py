@@ -13,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from core.config import get_settings
 from config.database import init_db, close_db
-from api import assessment_router, auth_router, sessions_router
+from api import assessment_router, auth_router, sessions_router, reports_router
 
 settings = get_settings()
 
@@ -23,6 +23,7 @@ async def lifespan(app: FastAPI):
     # 导入所有模型，确保它们注册到 Base.metadata
     from models.user import User  # noqa: F401
     from models.session import Session  # noqa: F401
+    from models.report import Report  # noqa: F401
 
     await init_db()
     # 初始化 LangGraph 测评工作流
@@ -53,6 +54,7 @@ app.add_middleware(
 app.include_router(auth_router)
 app.include_router(sessions_router)
 app.include_router(assessment_router)
+app.include_router(reports_router)
 
 # 挂载静态目录（保留给未来静态资源使用）
 # 注意：生产环境使用 MinIO 对象存储，本地 static 目录仅用于开发调试

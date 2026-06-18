@@ -6,6 +6,7 @@
 """
 import asyncio
 import uuid
+from datetime import datetime
 
 from langgraph.types import Command
 from langchain_core.runnables import RunnableConfig
@@ -350,6 +351,7 @@ async def _run_report_pipeline(session_id: str, thread_id: str, cmd: Command):
         cmd: LangGraph Command
     """
     from config.database import async_session
+    from models.report import Report
 
     async def update_progress(progress: int) -> None:
         async with async_session() as db:
@@ -389,6 +391,14 @@ async def _run_report_pipeline(session_id: str, thread_id: str, cmd: Command):
                 updated_session.report_file_key = ""
                 updated_session.report = result.get("report", "")
                 await db.commit()
+
+                # 同步写入 reports 表，便于首页报告库查询与支付管理
+                await _save_report_to_db(
+                    async_session=async_session,
+                    session_id=session_id,
+                    user_id=str(updated_session.user_id),
+                    report_content=result.get("report", ""),
+                )
     except Exception as e:
         print(f"❌ 报告生成失败: session={session_id}, error={e}")
         # 更新失败状态
@@ -431,6 +441,28 @@ def _extract_question_from_state(state: dict) -> dict:
         "current_step": state.get("current_step", ""),
         "is_complete": False,
     }
+
+
+async def _save_report_to_db(async_session, session_id: str, user_id: str, report_content: str):
+    """将生成的报告写入 reports 表"""
+    if not report_content or not report_content.strip():
+        return
+
+    try:
+        async with async_session() as db:
+            from models.report import Report
+            report = Report(
+                user_id=user_id,
+                session_id=session_id,
+                report_title=f"志愿规划报告 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                report_content=report_content,
+                is_paid=False,
+            )
+            db.add(report)
+            await db.commit()
+            print(f"✅ 报告已保存到 reports 表: session={session_id}")
+    except Exception as e:
+        print(f"❌ 保存报告到 reports 表失败: session={session_id}, error={e}")
 
 
 def _extract_report_from_messages(messages: list) -> str:

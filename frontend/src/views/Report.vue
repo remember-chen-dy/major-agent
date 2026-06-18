@@ -13,7 +13,7 @@ const sessionStore = useSessionStore();
 const sessionId = computed(() => route.params.sessionId as string);
 const loading = ref(true);
 const error = ref('');
-const report = ref('');
+const report = ref<any>(null);
 
 const loadReport = async () => {
   if (!sessionId.value) {
@@ -23,17 +23,50 @@ const loadReport = async () => {
   }
 
   try {
-    const data = await api.getAssessmentResults(sessionId.value);
-    if (data.is_generating) {
-      router.replace(`/report/${sessionId.value}/loading`);
+    await authStore.login().catch(() => null);
+
+    // 优先从 reports 表读取报告及支付状态
+    let reportData: any = null;
+    if (authStore.userId) {
+      try {
+        const bySession = await api.getReportBySession(sessionId.value, authStore.userId);
+        reportData = bySession.report;
+      } catch (e) {
+        console.warn('从 reports 表读取失败，尝试会话结果:', e);
+      }
+    }
+
+    if (!reportData) {
+      // 兼容旧数据：从会话结果读取
+      const data = await api.getAssessmentResults(sessionId.value);
+      if (data.is_generating) {
+        router.replace(`/report/${sessionId.value}/loading`);
+        return;
+      }
+      if (!data.is_complete) {
+        error.value = '报告还没有生成完成';
+        loading.value = false;
+        return;
+      }
+      reportData = {
+        report_id: 0,
+        report_content: data.report || '',
+        report_title: '志愿规划报告',
+        is_paid: true,
+        session_id: sessionId.value,
+        created_at: new Date().toISOString(),
+      };
+    }
+
+    // 未支付则跳转到解锁页
+    if (!reportData.is_paid) {
+      router.replace(`/report/${sessionId.value}/unlock`);
       return;
     }
-    if (!data.is_complete) {
-      error.value = '报告还没有生成完成';
-      return;
-    }
-    report.value = (data.report || '').trim();
-    if (!report.value) {
+
+    report.value = reportData;
+
+    if (!reportData.report_content?.trim()) {
       error.value = '报告内容还没有写入成功，请返回重新测评或稍后重试';
     }
   } catch {
@@ -43,14 +76,18 @@ const loadReport = async () => {
   }
 };
 
-const reportHtml = computed(() => renderMarkdown(report.value));
+const reportHtml = computed(() => {
+  if (!report.value?.report_content) return '';
+  return renderMarkdown(report.value.report_content);
+});
 
 const reportSummary = computed(() => {
-  const headings = report.value
+  if (!report.value?.report_content) return ['成绩定位', '专业方向', '志愿梯度', '城市策略', '行动清单'];
+  const headings = report.value.report_content
     .split('\n')
-    .map(line => line.trim())
-    .filter(line => /^#{2,3}\s+/.test(line))
-    .map(line => line.replace(/^#{2,3}\s+/, '').replace(/^\d+[、.]\s*/, ''))
+    .map((line: string) => line.trim())
+    .filter((line: string) => /^#{2,3}\s+/.test(line))
+    .map((line: string) => line.replace(/^#{2,3}\s+/, '').replace(/^\d+[、.]\s*/, ''))
     .slice(0, 5);
 
   return headings.length ? headings : ['成绩定位', '专业方向', '志愿梯度', '城市策略', '行动清单'];
@@ -151,11 +188,11 @@ function renderMarkdown(md: string): string {
 }
 
 const goHome = () => {
-  router.push({ path: '/', query: { fromReport: '1' } });
+  router.push({ path: '/', query: { landing: '1' } });
 };
 
-const goAssessment = () => {
-  router.push({ path: '/assessment', query: { fromReport: '1' } });
+const goReportLibrary = () => {
+  router.push('/assessment?reportLibrary=1');
 };
 
 const restartAssessment = async () => {
@@ -180,9 +217,15 @@ onMounted(async () => {
 <template>
   <main class="report-page">
     <header class="report-nav">
-      <button @click="goHome">返回首页</button>
+      <button class="home-btn" @click="goHome">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+          <polyline points="9 22 9 12 15 12 15 22"/>
+        </svg>
+        返回首页
+      </button>
       <strong>志愿规划报告</strong>
-      <button @click="restartAssessment">重新测评</button>
+      <button @click="goReportLibrary">报告库</button>
     </header>
 
     <section v-if="loading" class="state">正在打开报告...</section>
@@ -197,12 +240,17 @@ onMounted(async () => {
     <article v-else class="report-shell">
       <div class="report-title">
         <p>AI 志愿规划</p>
-        <h1>高考志愿规划报告</h1>
+        <h1>{{ report?.report_title || '高考志愿规划报告' }}</h1>
         <div class="summary-row">
           <span v-for="item in reportSummary" :key="item">{{ item }}</span>
         </div>
       </div>
       <div class="report-content" v-html="reportHtml"></div>
+
+      <div class="report-actions">
+        <button class="primary-action" @click="restartAssessment">重新测评</button>
+        <button class="secondary-action" @click="goHome">返回首页</button>
+      </div>
     </article>
   </main>
 </template>
@@ -222,9 +270,9 @@ onMounted(async () => {
   min-height: 58px;
   padding: 8px 16px;
   display: grid;
-  grid-template-columns: minmax(82px, 120px) 1fr minmax(82px, 120px);
+  grid-template-columns: minmax(110px, 140px) 1fr minmax(110px, 140px);
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   background: rgba(255, 255, 255, 0.92);
   border-bottom: 1px solid #e6eaf0;
   backdrop-filter: blur(12px);
@@ -232,20 +280,31 @@ onMounted(async () => {
 .report-nav strong {
   text-align: center;
   font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .report-nav button,
 .state-actions button {
   border: none;
   border-radius: 10px;
-  padding: 9px 10px;
+  padding: 9px 14px;
   background: #1f6feb;
   color: white;
   font-weight: 750;
   cursor: pointer;
+  white-space: nowrap;
 }
-.report-nav button:first-child {
-  background: transparent;
+.report-nav .home-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #f2f6fd;
   color: #1f6feb;
+}
+.report-nav .home-btn svg {
+  flex-shrink: 0;
 }
 .report-shell {
   width: min(100%, 920px);
@@ -269,6 +328,11 @@ onMounted(async () => {
   margin: 8px 0 0;
   font-size: clamp(28px, 6vw, 44px);
   line-height: 1.1;
+}
+.report-time {
+  margin-top: 10px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
 }
 .summary-row {
   display: flex;
@@ -397,13 +461,37 @@ onMounted(async () => {
   display: flex;
   gap: 10px;
 }
+.report-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 12px;
+  margin-top: 32px;
+}
+.primary-action,
+.secondary-action {
+  border: none;
+  border-radius: 12px;
+  padding: 13px 24px;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.primary-action {
+  background: #1f6feb;
+  color: white;
+}
+.secondary-action {
+  background: #f2ede7;
+  color: #3d352e;
+}
 @media (max-width: 640px) {
   .report-nav {
-    grid-template-columns: 82px 1fr 82px;
+    grid-template-columns: 96px 1fr 96px;
     padding: 8px 10px;
   }
   .report-nav button {
-    padding: 8px 6px;
+    padding: 8px 10px;
     font-size: 13px;
   }
   .report-nav strong {
@@ -432,6 +520,14 @@ onMounted(async () => {
   .report-content :deep(li) {
     font-size: 15px;
     line-height: 1.75;
+  }
+  .report-actions {
+    flex-direction: column;
+    margin-top: 24px;
+  }
+  .primary-action,
+  .secondary-action {
+    width: 100%;
   }
   .report-content :deep(h2) {
     font-size: 19px;

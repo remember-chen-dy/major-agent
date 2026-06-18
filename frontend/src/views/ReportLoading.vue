@@ -13,6 +13,23 @@ const statusText = ref('正在整理测评答案...');
 const progress = ref(12);
 const error = ref('');
 let pollTimer: ReturnType<typeof setInterval> | null = null;
+let fakeProgressTimer: ReturnType<typeof setInterval> | null = null;
+
+const startFakeProgress = () => {
+  stopFakeProgress();
+  fakeProgressTimer = setInterval(() => {
+    if (progress.value >= 95) return;
+    const increment = 0.2 + Math.random() * 0.6;
+    progress.value = Math.min(95, parseFloat((progress.value + increment).toFixed(2)));
+  }, 400);
+};
+
+const stopFakeProgress = () => {
+  if (fakeProgressTimer) {
+    clearInterval(fakeProgressTimer);
+    fakeProgressTimer = null;
+  }
+};
 
 const steps = [
   '正在整理测评答案...',
@@ -36,17 +53,21 @@ const pollResults = async () => {
     const data = await api.getAssessmentResults(sessionId.value);
     if (data.is_complete) {
       stopPolling();
+      stopFakeProgress();
+      progress.value = 100;
       router.replace(`/report/${sessionId.value}/ready`);
       return;
     }
 
     if (data.is_failed) {
       stopPolling();
+      stopFakeProgress();
       error.value = '报告生成失败，请返回后重新提交或重新测评';
       return;
     }
 
-    progress.value = Math.max(12, Math.min(95, data.report_progress || progress.value));
+    const realProgress = data.report_progress || progress.value;
+    progress.value = Math.max(progress.value, Math.min(95, realProgress));
     const stepIndex = Math.min(steps.length - 1, Math.floor(progress.value / 22));
     statusText.value = steps[stepIndex];
   } catch {
@@ -54,17 +75,17 @@ const pollResults = async () => {
   }
 };
 
-const goAssessment = () => {
-  router.push('/assessment');
-};
-
 onMounted(async () => {
   await authStore.login().catch(() => null);
+  startFakeProgress();
   await pollResults();
   pollTimer = setInterval(pollResults, 3000);
 });
 
-onUnmounted(stopPolling);
+onUnmounted(() => {
+  stopPolling();
+  stopFakeProgress();
+});
 </script>
 
 <template>
@@ -87,7 +108,6 @@ onUnmounted(stopPolling);
 
       <div class="actions">
         <button class="primary-btn" @click="pollResults">刷新状态</button>
-        <button class="ghost-btn" @click="goAssessment">返回测评页</button>
       </div>
     </section>
   </main>

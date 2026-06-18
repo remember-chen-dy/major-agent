@@ -84,6 +84,11 @@ const isGeneratingReport = ref(false);
 const loadingStepText = ref('');
 const loadingStepIndex = ref(0);
 
+// 报告库弹窗相关
+const showLibrary = ref(false);
+const userReports = ref<any[]>([]);
+const libraryLoading = ref(false);
+
 // 下拉搜索相关
 const showProvinceSearch = ref(false);
 const provinceSearchQuery = ref('');
@@ -613,6 +618,41 @@ const goBack = () => {
   window.history.length > 1 ? window.history.back() : (window.location.href = '/');
 };
 
+const openLibrary = async () => {
+  showLibrary.value = true;
+  await loadUserReports();
+};
+
+const closeLibrary = () => {
+  showLibrary.value = false;
+};
+
+const loadUserReports = async () => {
+  if (!authStore.userId) return;
+  libraryLoading.value = true;
+  try {
+    const data = await api.getUserReports(authStore.userId);
+    userReports.value = data.reports || [];
+  } catch (error) {
+    console.error('加载报告库失败:', error);
+  } finally {
+    libraryLoading.value = false;
+  }
+};
+
+const viewReportFromLibrary = (report: any) => {
+  closeLibrary();
+  if (report.session_id) {
+    router.push(`/report/${report.session_id}`);
+  }
+};
+
+const formatReportTime = (iso: string) => {
+  if (!iso) return '';
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
 // ============================================================
 // 生命周期
 // ============================================================
@@ -701,6 +741,11 @@ onMounted(async () => {
     window.addEventListener('beforeunload', () => {
       sessionStore.saveToStorage();
     });
+
+    // 如果从报告库入口进入，自动打开报告库
+    if (route.query.reportLibrary === '1') {
+      openLibrary();
+    }
   } catch (error) {
     console.error('[onMounted] 初始化失败:', error);
   }
@@ -724,7 +769,12 @@ onUnmounted(() => {
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
         </button>
         <h1 class="coze-nav-title">{{ currentSession?.title ?? 'AI 志愿顾问' }}</h1>
-        <div class="coze-nav-spacer"></div>
+        <button @click="openLibrary" class="coze-nav-btn" aria-label="报告库">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/>
+            <path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/>
+          </svg>
+        </button>
       </div>
     </header>
 
@@ -869,6 +919,36 @@ onUnmounted(() => {
         </div>
       </div>
     </main>
+
+    <!-- 报告库弹窗 -->
+    <div v-if="showLibrary" class="library-overlay" @click="closeLibrary">
+      <div class="library-panel" @click.stop>
+        <div class="library-header">
+          <h2>报告库</h2>
+          <button @click="closeLibrary" aria-label="关闭">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+
+        <div v-if="libraryLoading" class="library-empty">正在加载报告...</div>
+        <div v-else-if="userReports.length === 0" class="library-empty">
+          暂无报告，完成测评后即可在这里查看。
+        </div>
+        <ul v-else class="library-list">
+          <li v-for="report in userReports" :key="report.report_id" @click="viewReportFromLibrary(report)">
+            <div class="library-item">
+              <div class="library-item-info">
+                <p class="library-item-title">{{ report.report_title }}</p>
+                <p class="library-item-time">{{ formatReportTime(report.created_at) }}</p>
+              </div>
+              <span class="library-item-status" :class="report.is_paid ? 'paid' : 'unpaid'">
+                {{ report.is_paid ? '已支付' : '未支付' }}
+              </span>
+            </div>
+          </li>
+        </ul>
+      </div>
+    </div>
 
   </div>
 </template>
@@ -1397,6 +1477,106 @@ onUnmounted(() => {
 .coze-prose :deep(td) { padding: 8px 10px; border: 0.5px solid var(--coze-separator); }
 .coze-prose :deep(strong) { font-weight: 600; }
 .coze-prose :deep(blockquote) { border-left: 3px solid var(--coze-blue); padding-left: 12px; color: var(--coze-text-secondary); margin: 10px 0; }
+
+/* --- 报告库弹窗 --- */
+.library-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  background: rgba(0, 0, 0, 0.4);
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+}
+.library-panel {
+  width: 100%;
+  max-width: 520px;
+  max-height: 70vh;
+  background: var(--coze-card-bg);
+  border-radius: 20px 20px 0 0;
+  box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.1);
+  display: flex;
+  flex-direction: column;
+  animation: slideUp 0.25s ease-out;
+}
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+.library-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px;
+  border-bottom: 0.5px solid var(--coze-separator);
+}
+.library-header h2 {
+  font-size: 17px;
+  font-weight: 700;
+  margin: 0;
+}
+.library-header button {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--coze-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.library-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px 0;
+  overflow-y: auto;
+}
+.library-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 16px;
+  cursor: pointer;
+  transition: background 0.12s;
+}
+.library-item:active {
+  background: rgba(0, 0, 0, 0.04);
+}
+.library-item-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--coze-text);
+  margin: 0;
+}
+.library-item-time {
+  font-size: 12px;
+  color: var(--coze-text-secondary);
+  margin: 4px 0 0;
+}
+.library-item-status {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 999px;
+}
+.library-item-status.paid {
+  background: #e6f4ea;
+  color: #1e8e3e;
+}
+.library-item-status.unpaid {
+  background: #fce8e6;
+  color: #d93025;
+}
+.library-empty {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--coze-text-secondary);
+  font-size: 14px;
+}
 
 /* --- 减少动画偏好 --- */
 @media (prefers-reduced-motion: reduce) {

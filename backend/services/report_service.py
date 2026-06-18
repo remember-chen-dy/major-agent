@@ -7,6 +7,7 @@ from datetime import datetime
 from sqlalchemy import select, update
 
 from config.database import async_session
+from models.report import Report
 from models.session import Session
 from workflow.final_agent import planner_node, executor_node, solver_node, _build_user_profile
 
@@ -67,6 +68,21 @@ class ReportService:
                 session.report_file_key = ""
                 session.report = report
                 await db.commit()
+
+                # 同步写入 reports 表，便于首页报告库查询与支付管理
+                try:
+                    new_report = Report(
+                        user_id=user_id,
+                        session_id=session_id,
+                        report_title=f"志愿规划报告 {datetime.now().strftime('%Y-%m-%d %H:%M')}",
+                        report_content=report,
+                        is_paid=False,
+                    )
+                    db.add(new_report)
+                    await db.commit()
+                    print(f"✅ 报告已保存到 reports 表: session={session_id}")
+                except Exception as save_error:
+                    print(f"❌ 保存报告到 reports 表失败: session={session_id}, error={save_error}")
 
             print(f"✅ Markdown 报告生成完成: session={session_id}, user={user_id}")
 

@@ -13,9 +13,18 @@ const sessionStore = useSessionStore();
 const sessionId = computed(() => route.params.sessionId as string);
 const loading = ref(true);
 const error = ref('');
-const reportPreview = ref('');
+const report = ref<any>(null);
+const paying = ref(false);
 
-const loadStatus = async () => {
+const valueItems = [
+  '成绩定位与院校层次分析',
+  '适合专业方向深度推荐',
+  '志愿填报避坑清单',
+  '城市与院校策略建议',
+  '专属行动清单与时间节点',
+];
+
+const loadReport = async () => {
   if (!sessionId.value) {
     error.value = '缺少会话 ID';
     loading.value = false;
@@ -23,16 +32,45 @@ const loadStatus = async () => {
   }
 
   try {
-    const data = await api.getAssessmentResults(sessionId.value);
-    if (data.is_generating) {
-      router.replace(`/report/${sessionId.value}/loading`);
+    await authStore.login().catch(() => null);
+
+    // 优先从 reports 表读取；失败时回退到会话结果
+    let reportData: any = null;
+    if (authStore.userId) {
+      try {
+        const bySession = await api.getReportBySession(sessionId.value, authStore.userId);
+        reportData = bySession.report;
+      } catch (e) {
+        console.warn('从 reports 表读取失败，尝试会话结果:', e);
+      }
+    }
+
+    if (!reportData) {
+      const data = await api.getAssessmentResults(sessionId.value);
+      if (data.is_generating) {
+        router.replace(`/report/${sessionId.value}/loading`);
+        return;
+      }
+      if (!data.is_complete) {
+        error.value = '报告还没有生成完成，请稍后再试';
+        return;
+      }
+      reportData = {
+        report_id: 0,
+        report_content: data.report || '',
+        report_title: '志愿规划报告',
+        is_paid: true,
+        session_id: sessionId.value,
+      };
+    }
+
+    report.value = reportData;
+
+    // 已支付直接进报告页
+    if (reportData.is_paid) {
+      router.replace(`/report/${sessionId.value}`);
       return;
     }
-    if (!data.is_complete) {
-      error.value = '报告还没有生成完成，请稍后再试';
-      return;
-    }
-    reportPreview.value = (data.report || '').split('\n').filter(Boolean).slice(0, 10).join('\n');
   } catch {
     error.value = '无法加载报告状态，请检查网络后重试';
   } finally {
@@ -40,12 +78,43 @@ const loadStatus = async () => {
   }
 };
 
-const viewReport = () => {
-  router.push(`/report/${sessionId.value}`);
+const reportPreview = computed(() => {
+  if (!report.value?.report_content) return '';
+  return report.value.report_content
+    .split('\n')
+    .filter(Boolean)
+    .slice(0, 12)
+    .join('\n');
+});
+
+const handlePay = async () => {
+  if (!report.value || paying.value) return;
+
+  // 兜底：如果 report_id 为 0（从老会话回退），直接放行查看
+  if (!report.value.report_id) {
+    router.push(`/report/${sessionId.value}`);
+    return;
+  }
+
+  paying.value = true;
+  try {
+    await api.payReport(report.value.report_id);
+    report.value.is_paid = true;
+    router.replace(`/report/${sessionId.value}`);
+  } catch (error) {
+    console.error('支付失败:', error);
+    alert('支付处理失败，请稍后重试');
+  } finally {
+    paying.value = false;
+  }
 };
 
 const goHome = () => {
-  router.push('/');
+  router.push({ path: '/', query: { landing: '1' } });
+};
+
+const goReportLibrary = () => {
+  router.push('/assessment?reportLibrary=1');
 };
 
 const restartAssessment = async () => {
@@ -62,38 +131,57 @@ const restartAssessment = async () => {
 };
 
 onMounted(async () => {
-  await authStore.login().catch(() => null);
-  await loadStatus();
+  await loadReport();
 });
 </script>
 
 <template>
   <main class="ready-page">
     <section class="ready-shell">
-      <button class="back-btn" @click="goHome">返回首页</button>
-
       <div class="hero">
         <p class="eyebrow">报告已生成</p>
         <h1>你的志愿规划报告已经准备好了</h1>
-        <p class="subtext">点击下方按钮即可查看完整报告。报告会直接在页面内展示，手机端也可以完整阅读。</p>
+        <p class="subtext">点击下方按钮支付 3 元即可查看完整报告。报告会直接在页面内展示，手机端也可以完整阅读。</p>
       </div>
 
       <div v-if="loading" class="state-card">正在确认报告状态...</div>
       <div v-else-if="error" class="state-card error">
         <p>{{ error }}</p>
-        <button @click="loadStatus">重试</button>
+        <button @click="loadReport">重试</button>
       </div>
       <div v-else class="ready-grid">
         <article class="preview-card">
-          <pre>{{ reportPreview || '报告内容已生成，点击查看完整报告。' }}</pre>
+          <pre>{{ reportPreview || '报告内容已生成，支付后即可查看完整内容。' }}</pre>
           <div class="fade"></div>
         </article>
 
         <aside class="action-card">
-          <div class="check">✓</div>
-          <h2>完整报告可查看</h2>
+          <div class="lock">🔒</div>
+          <h2>完整报告需付费解锁</h2>
           <p>包含成绩定位、专业建议、避坑提醒、城市策略和行动清单。</p>
-          <button class="primary-btn" @click="viewReport">查看志愿报告</button>
+
+          <ul class="value-list">
+            <li v-for="item in valueItems" :key="item">
+              <span class="check">✓</span>
+              {{ item }}
+            </li>
+          </ul>
+
+          <div class="social-proof">
+            <span class="spark">✦</span>
+            已有 12,580 位考生解锁完整报告
+          </div>
+
+          <div class="price-row">
+            <span class="original-price">¥29.9</span>
+            <span class="price">¥3.00</span>
+          </div>
+          <div class="price-hint">限时特惠 · 一次性解锁，永久查看</div>
+
+          <button class="pay-btn" @click="handlePay" :disabled="paying">
+            <span v-if="paying">支付处理中...</span>
+            <span v-else>立即解锁完整报告</span>
+          </button>
           <button class="ghost-btn" @click="restartAssessment">重新测评</button>
           <button class="ghost-btn" @click="goHome">返回首页</button>
         </aside>
@@ -108,7 +196,7 @@ onMounted(async () => {
   min-height: 100dvh;
   background: #f7f3ed;
   color: #1f2328;
-  padding: 22px;
+  padding: 16px;
 }
 .ready-shell {
   max-width: 980px;
@@ -119,16 +207,39 @@ onMounted(async () => {
   background: transparent;
   color: #1f6feb;
   font-weight: 700;
-  padding: 10px 0;
+  padding: 6px 0;
   cursor: pointer;
 }
 .hero {
-  padding: 28px 0 22px;
+  padding: 10px 0 18px;
 }
 .eyebrow {
-  font-size: 13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
   font-weight: 800;
   color: #1f6feb;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: linear-gradient(135deg, rgba(31, 111, 235, 0.14) 0%, rgba(31, 111, 235, 0.06) 100%);
+  border: 1px solid rgba(31, 111, 235, 0.22);
+  border-radius: 999px;
+  padding: 6px 12px;
+  box-shadow: 0 3px 10px rgba(31, 111, 235, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.eyebrow::before {
+  content: '✓';
+  display: grid;
+  place-items: center;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #1f6feb 0%, #4b8ff7 100%);
+  color: white;
+  font-size: 9px;
+  font-weight: 900;
+  box-shadow: 0 2px 5px rgba(31, 111, 235, 0.3);
 }
 h1 {
   max-width: 720px;
@@ -181,29 +292,96 @@ h1 {
 }
 .action-card {
   padding: 24px;
+  text-align: center;
 }
-.check {
-  width: 46px;
-  height: 46px;
+.lock {
+  width: 50px;
+  height: 50px;
   border-radius: 14px;
-  background: #1f6feb;
-  color: #fff;
+  background: #f2ede7;
   display: grid;
   place-items: center;
-  font-size: 24px;
-  font-weight: 900;
+  font-size: 26px;
+  margin: 0 auto;
 }
 .action-card h2 {
-  margin-top: 18px;
+  margin-top: 16px;
   font-size: 22px;
   font-weight: 850;
 }
-.action-card p {
+.action-card > p {
   margin-top: 10px;
   line-height: 1.65;
   color: #62584f;
 }
-.primary-btn,
+.value-list {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  text-align: left;
+}
+.value-list li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 0;
+  font-size: 14px;
+  color: #4e463f;
+  border-bottom: 1px solid rgba(234, 223, 211, 0.6);
+}
+.value-list li:last-child {
+  border-bottom: none;
+}
+.value-list .check {
+  flex-shrink: 0;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: #e6f4ea;
+  color: #1e8e3e;
+  font-size: 10px;
+  font-weight: 900;
+  display: grid;
+  place-items: center;
+  margin-top: 1px;
+}
+.social-proof {
+  margin-top: 14px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: #8e6a4b;
+  background: rgba(140, 106, 75, 0.08);
+  padding: 6px 12px;
+  border-radius: 999px;
+}
+.social-proof .spark {
+  color: #f5a623;
+}
+.price-row {
+  margin-top: 18px;
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 10px;
+}
+.original-price {
+  font-size: 16px;
+  color: #8e8e93;
+  text-decoration: line-through;
+}
+.price {
+  font-size: 34px;
+  font-weight: 900;
+  color: #1f2328;
+}
+.price-hint {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #8e8e93;
+}
+.pay-btn,
 .ghost-btn,
 .state-card button {
   width: 100%;
@@ -214,10 +392,14 @@ h1 {
   font-weight: 800;
   cursor: pointer;
 }
-.primary-btn {
-  margin-top: 22px;
+.pay-btn {
+  margin-top: 18px;
   background: #1f6feb;
   color: #fff;
+}
+.pay-btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 .ghost-btn {
   margin-top: 10px;

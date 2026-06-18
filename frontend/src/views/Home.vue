@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { onMounted, onUnmounted, ref } from 'vue';
-import { useRouter } from 'vue-router';
+import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../stores/auth';
-import { useSessionStore } from '../stores/session';
 import { api } from '../api';
+
+const route = useRoute();
 
 // ============================================================
 // 状态管理
@@ -11,13 +12,17 @@ import { api } from '../api';
 
 const router = useRouter();
 const authStore = useAuthStore();
-const sessionStore = useSessionStore();
 
 /** 导航栏滚动状态 */
 const isScrolled = ref(false);
 
 /** 移动端菜单打开状态 */
 const isMenuOpen = ref(false);
+
+/** 最新报告状态 */
+const latestReport = ref<any>(null);
+const reportLoading = ref(true);
+const reportError = ref('');
 
 // ============================================================
 // 用户评价数据
@@ -58,30 +63,198 @@ const handleScroll = () => {
   isScrolled.value = window.scrollY > 20;
 };
 
-onMounted(async () => {
-  // 检查 URL 参数，如果 fromReport=1，说明用户从报告页面主动返回首页，跳过自动跳转
-  const urlParams = new URLSearchParams(window.location.search);
-  const fromReport = urlParams.get('fromReport');
+// ============================================================
+// 报告相关
+// ============================================================
 
-  if (!fromReport) {
-    // 检查用户是否有已完成的报告
-    try {
-      await authStore.login();
-      if (authStore.userId) {
-        const reportData = await sessionStore.checkLatestReport(authStore.userId);
-        if (reportData?.has_report && reportData.session_id) {
-          // 有已完成的报告，跳转到报告页面
-          router.replace(`/report/${reportData.session_id}`);
-          return;
-        }
-      }
-    } catch (error) {
-      console.error('检查报告失败:', error);
-    }
+const loadLatestReport = async () => {
+  // 从报告页点击"返回首页"时，强制展示最初的落地页
+  if (route.query.landing === '1') {
+    reportLoading.value = false;
+    return;
   }
 
-  window.addEventListener('scroll', handleScroll, { passive: true });
-  initScrollAnimations();
+  if (!authStore.userId) {
+    reportLoading.value = false;
+    return;
+  }
+
+  reportLoading.value = true;
+  reportError.value = '';
+  try {
+    const data = await api.getLatestReport(authStore.userId);
+    latestReport.value = data.report || null;
+  } catch (error) {
+    console.error('加载最新报告失败:', error);
+    reportError.value = '加载报告失败，请稍后重试';
+  } finally {
+    reportLoading.value = false;
+  }
+};
+
+const handlePayReport = async () => {
+  if (!latestReport.value) return;
+
+  try {
+    await api.payReport(latestReport.value.report_id);
+    latestReport.value.is_paid = true;
+  } catch (error) {
+    console.error('支付失败:', error);
+    alert('支付处理失败，请稍后重试');
+  }
+};
+
+const goToReportLibrary = () => {
+  router.push('/assessment?reportLibrary=1');
+};
+
+const goToReport = () => {
+  const sessionId = latestReport.value?.session_id;
+  if (sessionId) {
+    router.push(`/report/${sessionId}`);
+  }
+};
+
+const handleStartAssessment = () => {
+  router.push('/assessment');
+};
+
+const restartAssessment = async () => {
+  router.push('/assessment');
+};
+
+// ============================================================
+// Markdown 渲染（与 Report.vue 保持一致）
+// ============================================================
+
+const escapeHtml = (text: string) =>
+  text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+function renderInline(text: string) {
+  return escapeHtml(text)
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>');
+}
+
+function renderMarkdown(md: string): string {
+  if (!md || !md.trim()) return '<p>报告内容为空。</p>';
+
+  const lines = md.split('\n');
+  const html: string[] = [];
+  let paragraph: string[] = [];
+  let listOpen = false;
+  let tableLines: string[] = [];
+
+  const flushParagraph = () => {
+    if (!paragraph.length) return;
+    html.push(`<p>${renderInline(paragraph.join(' '))}</p>`);
+    paragraph = [];
+  };
+
+  const flushList = () => {
+    if (listOpen) {
+      html.push('</ul>');
+      listOpen = false;
+    }
+  };
+
+  const flushTable = () => {
+    if (!tableLines.length) return;
+    const rows = tableLines
+      .filter(line => !/^\|\s*:?-{3,}/.test(line))
+      .map(line => line.split('|').slice(1, -1).map(cell => renderInline(cell.trim())));
+    if (rows.length) {
+      const [head, ...body] = rows;
+      html.push('<div class="table-scroll"><table>');
+      html.push(`<thead><tr>${head.map(cell => `<th>${cell}</th>`).join('')}</tr></thead>`);
+      html.push(`<tbody>${body.map(row => `<tr>${row.map(cell => `<td>${cell}</td>`).join('')}</tr>`).join('')}</tbody>`);
+      html.push('</table></div>');
+    }
+    tableLines = [];
+  };
+
+  for (const raw of lines) {
+    const line = raw.trim();
+
+    if (!line) {
+      flushTable();
+      flushParagraph();
+      flushList();
+      continue;
+    }
+
+    if (line.startsWith('|') && line.endsWith('|')) {
+      flushParagraph();
+      flushList();
+      tableLines.push(line);
+      continue;
+    }
+    flushTable();
+
+    const heading = line.match(/^(#{1,4})\s+(.+)$/);
+    if (heading) {
+      flushParagraph();
+      flushList();
+      const level = Math.min(heading[1].length, 3);
+      html.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
+      continue;
+    }
+
+    const bullet = line.match(/^[-*]\s+(.+)$/);
+    if (bullet) {
+      flushParagraph();
+      if (!listOpen) {
+        html.push('<ul>');
+        listOpen = true;
+      }
+      html.push(`<li>${renderInline(bullet[1])}</li>`);
+      continue;
+    }
+
+    paragraph.push(line);
+  }
+
+  flushTable();
+  flushParagraph();
+  flushList();
+  return html.join('');
+}
+
+const reportPreview = computed(() => {
+  if (!latestReport.value?.report_content) return '';
+  return latestReport.value.report_content
+    .split('\n')
+    .filter(Boolean)
+    .slice(0, 12)
+    .join('\n');
+});
+
+const reportHtml = computed(() => {
+  if (!latestReport.value?.report_content) return '';
+  return renderMarkdown(latestReport.value.report_content);
+});
+
+// ============================================================
+// 生命周期
+// ============================================================
+
+onMounted(async () => {
+  // 先登录/恢复用户态
+  try {
+    await authStore.login();
+  } catch (error) {
+    console.error('登录失败:', error);
+  }
+
+  // 加载最新报告
+  await loadLatestReport();
+
+  // 如果没有报告，保持原来的首页 landing 并启用滚动动画
+  if (!latestReport.value) {
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    initScrollAnimations();
+  }
 });
 
 onUnmounted(() => {
@@ -133,11 +306,6 @@ const initScrollAnimations = async () => {
 // 事件处理
 // ============================================================
 
-/** 跳转到测评页面 */
-const handleStartAssessment = () => {
-  router.push('/assessment');
-};
-
 /** 了解更多 - 滚动到特色功能区 */
 const handleLearnMore = () => {
   document.getElementById('features')?.scrollIntoView({ behavior: 'smooth' });
@@ -161,423 +329,494 @@ const showTestimonial = (index: number) => {
 
 <template>
   <div class="min-h-screen overflow-hidden bg-warm-50">
-    <!-- ============================================================
-         1. 顶部导航栏
-         ============================================================ -->
-    <nav class="navbar" :class="{ scrolled: isScrolled }">
-      <div class="mx-auto flex h-full max-w-7xl items-center justify-between px-6">
-        <!-- Logo -->
-        <div class="flex items-center gap-2">
-          <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-warm-500 to-warm-300 text-white">
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
-            </svg>
-          </div>
-          <span class="text-lg font-bold tracking-tight text-warm-800">专业推荐</span>
-        </div>
-
-        <!-- 桌面端导航链接 -->
-        <div class="hidden items-center gap-8 md:flex">
-          <a href="#about" class="text-sm font-medium text-warm-400 transition-all duration-300 ease-warm-out hover:scale-105 hover:text-warm-800">
-            关于我们
-          </a>
-          <button class="btn-primary !rounded-full !px-6 !py-2 text-sm" @click="handleStartAssessment">
-            开始测评
-          </button>
-        </div>
-
-        <!-- 移动端汉堡菜单按钮 -->
-        <button class="flex h-11 w-11 items-center justify-center rounded-xl md:hidden" @click="toggleMenu" aria-label="菜单">
-          <div class="flex h-5 w-5 flex-col justify-between">
-            <span class="block h-0.5 w-full rounded-full bg-warm-800 transition-all duration-300 ease-warm-out" :class="{ 'translate-y-2 rotate-45': isMenuOpen }" />
-            <span class="block h-0.5 w-full rounded-full bg-warm-800 transition-all duration-300 ease-warm-out" :class="{ 'opacity-0': isMenuOpen }" />
-            <span class="block h-0.5 w-full rounded-full bg-warm-800 transition-all duration-300 ease-warm-out" :class="{ '-translate-y-2 -rotate-45': isMenuOpen }" />
-          </div>
-        </button>
+    <!-- 加载中 -->
+    <div v-if="reportLoading" class="flex min-h-screen items-center justify-center">
+      <div class="text-center text-warm-500">
+        <div class="mx-auto mb-4 h-8 w-8 animate-spin rounded-full border-4 border-warm-200 border-t-warm-500"></div>
+        <p>正在加载报告...</p>
       </div>
+    </div>
 
-      <!-- 移动端下拉菜单 -->
-      <transition name="slide-down">
-        <div v-if="isMenuOpen" class="border-t border-warm-200 bg-warm-50/95 px-6 py-4 backdrop-blur-xl md:hidden">
-          <div class="flex flex-col gap-4">
-            <a href="#about" class="rounded-xl px-4 py-3 text-base font-medium text-warm-600 hover:bg-warm-100" @click="closeMenu">
+    <!-- 加载失败 -->
+    <div v-else-if="reportError" class="flex min-h-screen flex-col items-center justify-center px-6">
+      <p class="text-warm-600">{{ reportError }}</p>
+      <button class="btn-primary mt-4" @click="loadLatestReport">重试</button>
+    </div>
+
+    <!-- ============================================================
+         报告视图（有最新报告时直接展示）
+         ============================================================ -->
+    <template v-else-if="latestReport">
+      <main class="report-page">
+        <header class="report-nav">
+          <button class="home-btn" @click="router.push({ path: '/', query: { landing: '1' } })">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+              <polyline points="9 22 9 12 15 12 15 22"/>
+            </svg>
+            返回首页
+          </button>
+          <strong>{{ latestReport.report_title }}</strong>
+          <button @click="goToReportLibrary">报告库</button>
+        </header>
+
+        <section v-if="latestReport.is_paid" class="report-shell">
+          <div class="report-title">
+            <p>AI 志愿规划</p>
+            <h1>{{ latestReport.report_title }}</h1>
+            <p class="report-time">生成于 {{ new Date(latestReport.created_at).toLocaleString() }}</p>
+          </div>
+          <div class="report-content" v-html="reportHtml"></div>
+          <div class="report-actions">
+            <button class="btn-primary" @click="restartAssessment">重新测评</button>
+            <button class="btn-secondary" @click="goToReportLibrary">查看报告库</button>
+          </div>
+        </section>
+
+        <section v-else class="paywall-shell">
+          <div class="paywall-card">
+            <div class="paywall-icon">🔒</div>
+            <h1>完整报告已生成</h1>
+            <p class="paywall-sub">支付 3 元即可查看完整志愿规划报告，包含成绩定位、专业建议、避坑提醒、城市策略和行动清单。</p>
+
+            <article class="preview-card">
+              <pre>{{ reportPreview || '报告内容已生成，支付后即可查看完整内容。' }}</pre>
+              <div class="fade"></div>
+            </article>
+
+            <div class="paywall-actions">
+              <button class="pay-btn" @click="handlePayReport">
+                <span class="price">¥3.00</span>
+                <span class="label">查看完整报告</span>
+              </button>
+              <button class="ghost-btn" @click="restartAssessment">重新测评</button>
+              <button class="ghost-btn" @click="goToReportLibrary">报告库</button>
+            </div>
+          </div>
+        </section>
+      </main>
+    </template>
+
+    <!-- ============================================================
+         引导视图（暂无报告时展示原有落地页）
+         ============================================================ -->
+    <template v-else>
+      <!-- 顶部导航栏 -->
+      <nav class="navbar" :class="{ scrolled: isScrolled }">
+        <div class="mx-auto flex h-full max-w-7xl items-center justify-between px-6">
+          <!-- Logo -->
+          <div class="flex items-center gap-2">
+            <div class="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-warm-500 to-warm-300 text-white">
+              <svg class="h-5 w-5" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.747 0 3.332.477 4.5 1.253v13C19.832 18.477 18.247 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+            </div>
+            <span class="text-lg font-bold tracking-tight text-warm-800">专业推荐</span>
+          </div>
+
+          <!-- 桌面端导航链接 -->
+          <div class="hidden items-center gap-8 md:flex">
+            <a href="#about" class="text-sm font-medium text-warm-400 transition-all duration-300 ease-warm-out hover:scale-105 hover:text-warm-800">
               关于我们
             </a>
-            <button class="btn-primary w-full text-center" @click="handleStartAssessment">
+            <button class="btn-primary !rounded-full !px-6 !py-2 text-sm" @click="handleStartAssessment">
               开始测评
             </button>
           </div>
-        </div>
-      </transition>
-    </nav>
 
-    <!-- ============================================================
-         2. Hero区域 - 扣子风格暖色渐变背景
-         ============================================================ -->
-    <section class="relative flex flex-col items-center justify-center overflow-hidden px-6 pt-32 pb-16 md:pt-40 md:pb-24">
-      <!-- 背景装饰 - 暖色渐变光晕 -->
-      <div class="pointer-events-none absolute inset-0">
-        <div class="absolute left-1/4 top-20 h-72 w-72 rounded-full bg-warm-200/30 blur-3xl" />
-        <div class="absolute bottom-20 right-1/4 h-96 w-96 rounded-full bg-cosmos-purple/5 blur-3xl" />
-        <div class="absolute left-1/2 top-1/3 h-64 w-64 -translate-x-1/2 rounded-full bg-warm-300/20 blur-3xl" />
-      </div>
-
-      <div class="relative z-10 mx-auto max-w-4xl text-center">
-        <!-- 大标题 -->
-        <h1 class="animate-fade-in-up text-4xl font-extrabold leading-tight tracking-tight text-warm-900 md:text-6xl lg:text-7xl">
-          找到属于你的<br class="md:hidden" />
-          <span class="gradient-text">未来</span>
-        </h1>
-
-        <!-- 副标题 -->
-        <p class="mx-auto mt-6 max-w-2xl text-lg font-light text-warm-400 md:text-xl md:leading-relaxed">
-          <span class="gradient-text font-normal">AI对话式测评</span>，科学推荐最适合你的大学专业
-        </p>
-
-        <!-- CTA按钮 -->
-        <div class="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
-          <button class="btn-primary w-full sm:w-auto" @click="handleStartAssessment">
-            开始免费测评
-          </button>
-          <button class="btn-secondary w-full sm:w-auto" @click="handleLearnMore">
-            了解更多
+          <!-- 移动端汉堡菜单按钮 -->
+          <button class="flex h-11 w-11 items-center justify-center rounded-xl md:hidden" @click="toggleMenu" aria-label="菜单">
+            <div class="flex h-5 w-5 flex-col justify-between">
+              <span class="block h-0.5 w-full rounded-full bg-warm-800 transition-all duration-300 ease-warm-out" :class="{ 'translate-y-2 rotate-45': isMenuOpen }" />
+              <span class="block h-0.5 w-full rounded-full bg-warm-800 transition-all duration-300 ease-warm-out" :class="{ 'opacity-0': isMenuOpen }" />
+              <span class="block h-0.5 w-full rounded-full bg-warm-800 transition-all duration-300 ease-warm-out" :class="{ '-translate-y-2 -rotate-45': isMenuOpen }" />
+            </div>
           </button>
         </div>
-      </div>
 
-      <!-- iPhone模型 / 对话界面预览 -->
-      <div class="mt-16 animate-fade-in-up [animation-delay:0.3s] w-full max-w-md opacity-0 md:mt-20">
-        <div class="iphone-mockup">
-          <!-- 状态栏 -->
-          <div class="flex items-center justify-between border-b border-warm-100 px-6 pt-10 pb-3">
-            <span class="text-xs font-semibold text-warm-800">9:41</span>
-            <div class="flex gap-1">
-              <div class="h-2.5 w-2.5 rounded-full bg-warm-300" />
-              <div class="h-2.5 w-2.5 rounded-full bg-warm-300" />
-              <div class="h-2.5 w-4 rounded-full bg-warm-800" />
+        <!-- 移动端下拉菜单 -->
+        <transition name="slide-down">
+          <div v-if="isMenuOpen" class="border-t border-warm-200 bg-warm-50/95 px-6 py-4 backdrop-blur-xl md:hidden">
+            <div class="flex flex-col gap-4">
+              <a href="#about" class="rounded-xl px-4 py-3 text-base font-medium text-warm-600 hover:bg-warm-100" @click="closeMenu">
+                关于我们
+              </a>
+              <button class="btn-primary w-full text-center" @click="handleStartAssessment">
+                开始测评
+              </button>
             </div>
           </div>
-          <!-- 对话区域 -->
-          <div class="bg-gradient-to-b from-warm-50 to-white px-4 py-6">
-            <!-- AI 消息 -->
-            <div class="mb-4 flex gap-2">
-              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300">
-                <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                </svg>
-              </div>
-              <div class="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm text-warm-700 shadow-sm">
-                你好！我是你的AI志愿顾问。让我们一起探索最适合你的专业方向吧 
-              </div>
-            </div>
-            <!-- 用户消息 -->
-            <div class="mb-4 flex justify-end gap-2">
-              <div class="rounded-2xl rounded-tr-md bg-gradient-to-r from-warm-500 to-warm-300 px-4 py-3 text-sm text-white shadow-sm">
-                我对计算机和数学都很感兴趣...
-              </div>
-            </div>
-            <!-- AI 消息 -->
-            <div class="mb-4 flex gap-2">
-              <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300">
-                <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                </svg>
-              </div>
-              <div class="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm text-warm-700 shadow-sm">
-                根据你的兴趣和优势，我为你推荐了以下3个专业方向...
-              </div>
-            </div>
-            <!-- 推荐卡片 -->
-            <div class="flex gap-2 overflow-x-auto pb-2">
-              <div class="shrink-0 rounded-xl bg-white p-3 text-left shadow-sm">
-                <p class="text-xs font-semibold text-warm-500">计算机科学与技术</p>
-                <p class="mt-1 text-xs text-warm-400">匹配度 95%</p>
-              </div>
-              <div class="shrink-0 rounded-xl bg-white p-3 text-left shadow-sm">
-                <p class="text-xs font-semibold text-warm-500">数据科学与大数据</p>
-                <p class="mt-1 text-xs text-warm-400">匹配度 92%</p>
-              </div>
-              <div class="shrink-0 rounded-xl bg-white p-3 text-left shadow-sm">
-                <p class="text-xs font-semibold text-warm-500">人工智能</p>
-                <p class="mt-1 text-xs text-warm-400">匹配度 89%</p>
-              </div>
-            </div>
-          </div>
-          <!-- 底部输入框 -->
-          <div class="border-t border-warm-100 bg-white px-4 py-3">
-            <div class="flex items-center gap-2 rounded-full bg-warm-50 px-4 py-2.5">
-              <span class="flex-1 text-sm text-warm-300">输入消息...</span>
-              <div class="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-r from-warm-500 to-warm-300">
-                <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
-                  <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
-                </svg>
-              </div>
-            </div>
-          </div>
+        </transition>
+      </nav>
+
+      <!-- ============================================================
+           2. Hero区域 - 扣子风格暖色渐变背景
+           ============================================================ -->
+      <section class="relative flex flex-col items-center justify-center overflow-hidden px-6 pt-32 pb-16 md:pt-40 md:pb-24">
+        <!-- 背景装饰 - 暖色渐变光晕 -->
+        <div class="pointer-events-none absolute inset-0">
+          <div class="absolute left-1/4 top-20 h-72 w-72 rounded-full bg-warm-200/30 blur-3xl" />
+          <div class="absolute bottom-20 right-1/4 h-96 w-96 rounded-full bg-cosmos-purple/5 blur-3xl" />
+          <div class="absolute left-1/2 top-1/3 h-64 w-64 -translate-x-1/2 rounded-full bg-warm-300/20 blur-3xl" />
         </div>
-      </div>
-    </section>
 
-    <!-- ============================================================
-         3. 特色功能卡片区
-         ============================================================ -->
-    <section id="features" class="bg-warm-100/50 px-6 py-20 md:py-32">
-      <div class="mx-auto max-w-6xl">
-        <h2 class="animate-on-scroll text-center text-3xl font-bold tracking-tight text-warm-900 md:text-4xl">
-          为什么选择我们
-        </h2>
-        <p class="mx-auto mt-4 max-w-xl text-center text-base text-warm-400 md:text-lg">
-          基于前沿AI技术和海量数据，为你提供最科学的专业推荐
-        </p>
+        <div class="relative z-10 mx-auto max-w-4xl text-center">
+          <!-- 大标题 -->
+          <h1 class="animate-fade-in-up text-4xl font-extrabold leading-tight tracking-tight text-warm-900 md:text-6xl lg:text-7xl">
+            找到属于你的<br class="md:hidden" />
+            <span class="gradient-text">未来</span>
+          </h1>
 
-        <!-- 卡片网格 -->
-        <div class="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
-          <!-- 卡片1：智能对话测评 -->
-          <div class="animate-on-scroll card-hover rounded-card bg-white p-8 shadow-sm">
-            <div class="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-warm-100">
-              <svg class="h-7 w-7 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
-              </svg>
-            </div>
-            <h3 class="text-xl font-bold text-warm-800">智能对话测评</h3>
-            <p class="mt-3 text-sm leading-relaxed text-warm-400">
-              通过自然的AI对话方式，深入了解你的兴趣、性格和能力，5分钟完成全面测评，告别枯燥的问卷填表。
-            </p>
-          </div>
+          <!-- 副标题 -->
+          <p class="mx-auto mt-6 max-w-2xl text-lg font-light text-warm-400 md:text-xl md:leading-relaxed">
+            <span class="gradient-text font-normal">AI对话式测评</span>，科学推荐最适合你的大学专业
+          </p>
 
-          <!-- 卡片2：大数据分析匹配 -->
-          <div class="animate-on-scroll card-hover rounded-card bg-white p-8 shadow-sm">
-            <div class="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-warm-100">
-              <svg class="h-7 w-7 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-              </svg>
-            </div>
-            <h3 class="text-xl font-bold text-warm-800">大数据分析匹配</h3>
-            <p class="mt-3 text-sm leading-relaxed text-warm-400">
-              基于数百万份真实考生数据，运用深度学习算法，精准匹配你的特质与专业要求，推荐成功率高达96%。
-            </p>
-          </div>
-
-          <!-- 卡片3：个性化报告解读 -->
-          <div class="animate-on-scroll card-hover rounded-card bg-white p-8 shadow-sm md:col-span-2 lg:col-span-1">
-            <div class="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-warm-100">
-              <svg class="h-7 w-7 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-                <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
-              </svg>
-            </div>
-            <h3 class="text-xl font-bold text-warm-800">个性化报告解读</h3>
-            <p class="mt-3 text-sm leading-relaxed text-warm-400">
-              生成详细的专业分析报告，包含匹配度评分、职业发展前景、推荐院校等维度，帮你全面了解每个选择。
-            </p>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================
-         4. 流程展示区
-         ============================================================ -->
-    <section class="px-6 py-20 md:py-32">
-      <div class="mx-auto max-w-5xl">
-        <h2 class="animate-on-scroll text-center text-3xl font-bold tracking-tight text-warm-900 md:text-4xl">
-          三步找到理想专业
-        </h2>
-
-        <!-- 桌面端水平步骤条 -->
-        <div class="mt-16 hidden md:block">
-          <div class="relative flex items-start justify-between">
-            <div class="gradient-line absolute left-[16%] right-[16%] top-7" />
-
-            <div class="step-item relative z-10 flex w-1/3 flex-col items-center text-center">
-              <div class="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
-                1
-              </div>
-              <h3 class="mt-6 text-lg font-bold text-warm-800">智能对话</h3>
-              <p class="mt-2 max-w-[200px] text-sm text-warm-400">5分钟完成测评，轻松自然地回答问题</p>
-            </div>
-
-            <div class="step-item relative z-10 flex w-1/3 flex-col items-center text-center">
-              <div class="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
-                2
-              </div>
-              <h3 class="mt-6 text-lg font-bold text-warm-800">AI分析</h3>
-              <p class="mt-2 max-w-[200px] text-sm text-warm-400">深度学习模型精准匹配你的特质</p>
-            </div>
-
-            <div class="step-item relative z-10 flex w-1/3 flex-col items-center text-center">
-              <div class="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
-                3
-              </div>
-              <h3 class="mt-6 text-lg font-bold text-warm-800">获得推荐</h3>
-              <p class="mt-2 max-w-[200px] text-sm text-warm-400">获取详细专业报告和志愿建议</p>
-            </div>
+          <!-- CTA按钮 -->
+          <div class="mt-10 flex flex-col items-center gap-4 sm:flex-row sm:justify-center">
+            <button class="btn-primary w-full sm:w-auto" @click="handleStartAssessment">
+              开始免费测评
+            </button>
+            <button class="btn-secondary w-full sm:w-auto" @click="handleLearnMore">
+              了解更多
+            </button>
           </div>
         </div>
 
-        <!-- 移动端垂直步骤条 -->
-        <div class="mt-12 md:hidden">
-          <div class="relative">
-            <div class="gradient-line-vertical absolute left-7 top-0 bottom-0" />
-
-            <div class="step-item relative z-10 mb-10 flex items-start gap-4 pl-16">
-              <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
-                1
-              </div>
-              <div>
-                <h3 class="text-lg font-bold text-warm-800">智能对话</h3>
-                <p class="mt-1 text-sm text-warm-400">5分钟完成测评，轻松自然地回答问题</p>
+        <!-- iPhone模型 / 对话界面预览 -->
+        <div class="mt-16 animate-fade-in-up [animation-delay:0.3s] w-full max-w-md opacity-0 md:mt-20">
+          <div class="iphone-mockup">
+            <!-- 状态栏 -->
+            <div class="flex items-center justify-between border-b border-warm-100 px-6 pt-10 pb-3">
+              <span class="text-xs font-semibold text-warm-800">9:41</span>
+              <div class="flex gap-1">
+                <div class="h-2.5 w-2.5 rounded-full bg-warm-300" />
+                <div class="h-2.5 w-2.5 rounded-full bg-warm-300" />
+                <div class="h-2.5 w-4 rounded-full bg-warm-800" />
               </div>
             </div>
-
-            <div class="step-item relative z-10 mb-10 flex items-start gap-4 pl-16">
-              <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
-                2
-              </div>
-              <div>
-                <h3 class="text-lg font-bold text-warm-800">AI分析</h3>
-                <p class="mt-1 text-sm text-warm-400">深度学习模型精准匹配你的特质</p>
-              </div>
-            </div>
-
-            <div class="step-item relative z-10 flex items-start gap-4 pl-16">
-              <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
-                3
-              </div>
-              <div>
-                <h3 class="text-lg font-bold text-warm-800">获得推荐</h3>
-                <p class="mt-1 text-sm text-warm-400">获取详细专业报告和志愿建议</p>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================
-         5. 用户评价区
-         ============================================================ -->
-    <section class="bg-warm-100/50 px-6 py-20 md:py-32">
-      <div class="mx-auto max-w-6xl">
-        <h2 class="animate-on-scroll text-center text-3xl font-bold tracking-tight text-warm-900 md:text-4xl">
-          听听他们怎么说
-        </h2>
-        <p class="mx-auto mt-4 max-w-xl text-center text-base text-warm-400">
-          超过10,000+考生和家长已经通过我们的测评找到了方向
-        </p>
-
-        <!-- 桌面端网格布局 -->
-        <div class="mt-12 hidden grid-cols-1 gap-6 md:grid md:grid-cols-3">
-          <div
-            v-for="(item, index) in testimonials"
-            :key="index"
-            class="animate-on-scroll card-hover rounded-card border-l-4 border-warm-400 bg-white p-8 shadow-sm"
-          >
-            <p class="text-sm italic leading-relaxed text-warm-600">
-              "{{ item.quote }}"
-            </p>
-            <div class="mt-6 border-t border-warm-100 pt-4">
-              <p class="text-sm font-semibold text-warm-800">{{ item.name }}</p>
-              <p class="mt-0.5 text-xs text-warm-400">{{ item.title }}</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- 移动端轮播布局 -->
-        <div class="mt-8 md:hidden">
-          <div class="overflow-hidden rounded-card bg-white p-8 shadow-sm">
-            <transition-group name="fade" mode="out-in">
-              <div :key="activeTestimonial">
-                <p class="text-sm italic leading-relaxed text-warm-600">
-                  "{{ testimonials[activeTestimonial].quote }}"
-                </p>
-                <div class="mt-6 border-t border-warm-100 pt-4">
-                  <p class="text-sm font-semibold text-warm-800">{{ testimonials[activeTestimonial].name }}</p>
-                  <p class="mt-0.5 text-xs text-warm-400">{{ testimonials[activeTestimonial].title }}</p>
+            <!-- 对话区域 -->
+            <div class="bg-gradient-to-b from-warm-50 to-white px-4 py-6">
+              <!-- AI 消息 -->
+              <div class="mb-4 flex gap-2">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300">
+                  <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                  </svg>
+                </div>
+                <div class="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm text-warm-700 shadow-sm">
+                  你好！我是你的AI志愿顾问。让我们一起探索最适合你的专业方向吧 
                 </div>
               </div>
-            </transition-group>
-          </div>
-          <div class="mt-6 flex justify-center gap-2">
-            <button
-              v-for="(_, index) in testimonials"
-              :key="index"
-              class="h-2 w-8 rounded-full transition-all duration-300"
-              :class="activeTestimonial === index ? 'bg-gradient-to-r from-warm-500 to-warm-300' : 'bg-warm-200'"
-              @click="showTestimonial(index)"
-            />
-          </div>
-        </div>
-      </div>
-    </section>
-
-    <!-- ============================================================
-         6. 底部CTA区
-         ============================================================ -->
-    <section class="relative overflow-hidden px-6 py-20 md:py-32">
-      <div class="pointer-events-none absolute inset-0">
-        <div class="absolute left-1/2 top-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-br from-warm-200/30 to-warm-300/20 blur-3xl" />
-      </div>
-
-      <div class="relative z-10 mx-auto max-w-3xl text-center">
-        <h2 class="animate-on-scroll text-3xl font-bold tracking-tight text-warm-900 md:text-5xl">
-          准备好探索你的<br class="md:hidden" />
-          <span class="gradient-text">未来</span>
-          了吗？
-        </h2>
-        <p class="mx-auto mt-4 max-w-lg text-base text-warm-400 md:text-lg">
-          只需5分钟，AI将为你量身定制专业推荐报告
-        </p>
-
-        <button class="btn-primary mx-auto mt-8 text-lg" @click="handleStartAssessment">
-          立即开始测评
-        </button>
-
-        <div class="mt-12 flex flex-wrap items-center justify-center gap-8">
-          <div class="flex items-center gap-2 text-sm text-warm-400">
-            <svg class="h-5 w-5 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
-            </svg>
-            <span>数据安全</span>
-          </div>
-          <div class="flex items-center gap-2 text-sm text-warm-400">
-            <svg class="h-5 w-5 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" />
-            </svg>
-            <span>权威认证</span>
-          </div>
-          <div class="flex items-center gap-2 text-sm text-warm-400">
-            <svg class="h-5 w-5 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
-            </svg>
-            <span>已有 10,000+ 考生完成测评</span>
+              <!-- 用户消息 -->
+              <div class="mb-4 flex justify-end gap-2">
+                <div class="rounded-2xl rounded-tr-md bg-gradient-to-r from-warm-500 to-warm-300 px-4 py-3 text-sm text-white shadow-sm">
+                  我对计算机和数学都很感兴趣...
+                </div>
+              </div>
+              <!-- AI 消息 -->
+              <div class="mb-4 flex gap-2">
+                <div class="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300">
+                  <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
+                  </svg>
+                </div>
+                <div class="rounded-2xl rounded-tl-md bg-white px-4 py-3 text-sm text-warm-700 shadow-sm">
+                  根据你的兴趣和优势，我为你推荐了以下3个专业方向...
+                </div>
+              </div>
+              <!-- 推荐卡片 -->
+              <div class="flex gap-2 overflow-x-auto pb-2">
+                <div class="shrink-0 rounded-xl bg-white p-3 text-left shadow-sm">
+                  <p class="text-xs font-semibold text-warm-500">计算机科学与技术</p>
+                  <p class="mt-1 text-xs text-warm-400">匹配度 95%</p>
+                </div>
+                <div class="shrink-0 rounded-xl bg-white p-3 text-left shadow-sm">
+                  <p class="text-xs font-semibold text-warm-500">数据科学与大数据</p>
+                  <p class="mt-1 text-xs text-warm-400">匹配度 92%</p>
+                </div>
+                <div class="shrink-0 rounded-xl bg-white p-3 text-left shadow-sm">
+                  <p class="text-xs font-semibold text-warm-500">人工智能</p>
+                  <p class="mt-1 text-xs text-warm-400">匹配度 89%</p>
+                </div>
+              </div>
+            </div>
+            <!-- 底部输入框 -->
+            <div class="border-t border-warm-100 bg-white px-4 py-3">
+              <div class="flex items-center gap-2 rounded-full bg-warm-50 px-4 py-2.5">
+                <span class="flex-1 text-sm text-warm-300">输入消息...</span>
+                <div class="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-r from-warm-500 to-warm-300">
+                  <svg class="h-4 w-4 text-white" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 12L3.269 3.126A59.768 59.768 0 0121.485 12 59.77 59.77 0 013.27 20.876L5.999 12zm0 0h7.5" />
+                  </svg>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
-    </section>
+      </section>
 
-    <!-- ============================================================
-         7. 页脚
-         ============================================================ -->
-    <footer class="border-t border-warm-200 bg-warm-100/50 px-6 py-10">
-      <div class="mx-auto max-w-6xl">
-        <div class="flex flex-col items-center justify-between gap-4 md:flex-row">
-          <p class="text-sm text-warm-400">
-            &copy; 2024 专业推荐. All rights reserved.
+      <!-- ============================================================
+           3. 特色功能卡片区
+           ============================================================ -->
+      <section id="features" class="bg-warm-100/50 px-6 py-20 md:py-32">
+        <div class="mx-auto max-w-6xl">
+          <h2 class="animate-on-scroll text-center text-3xl font-bold tracking-tight text-warm-900 md:text-4xl">
+            为什么选择我们
+          </h2>
+          <p class="mx-auto mt-4 max-w-xl text-center text-base text-warm-400 md:text-lg">
+            基于前沿AI技术和海量数据，为你提供最科学的专业推荐
           </p>
-          <div class="flex items-center gap-6">
-            <a href="#privacy" class="text-sm text-warm-400 transition-colors duration-300 hover:text-warm-600">
-              隐私政策
-            </a>
-            <a href="#contact" class="text-sm text-warm-400 transition-colors duration-300 hover:text-warm-600">
-              联系我们
-            </a>
-            <a href="#terms" class="text-sm text-warm-400 transition-colors duration-300 hover:text-warm-600">
-              使用条款
-            </a>
+
+          <!-- 卡片网格 -->
+          <div class="mt-12 grid gap-6 md:grid-cols-2 lg:grid-cols-3">
+            <!-- 卡片1：智能对话测评 -->
+            <div class="animate-on-scroll card-hover rounded-card bg-white p-8 shadow-sm">
+              <div class="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-warm-100">
+                <svg class="h-7 w-7 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M8.625 12a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H8.25m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0H12m4.125 0a.375.375 0 11-.75 0 .375.375 0 01.75 0zm0 0h-.375M21 12c0 4.556-4.03 8.25-9 8.25a9.764 9.764 0 01-2.555-.337A5.972 5.972 0 015.41 20.97a5.969 5.969 0 01-.474-.065 4.48 4.48 0 00.978-2.025c.09-.457-.133-.901-.467-1.226C3.93 16.178 3 14.189 3 12c0-4.556 4.03-8.25 9-8.25s9 3.694 9 8.25z" />
+                </svg>
+              </div>
+              <h3 class="text-xl font-bold text-warm-800">智能对话测评</h3>
+              <p class="mt-3 text-sm leading-relaxed text-warm-400">
+                通过自然的AI对话方式，深入了解你的兴趣、性格和能力，5分钟完成全面测评，告别枯燥的问卷填表。
+              </p>
+            </div>
+
+            <!-- 卡片2：大数据分析匹配 -->
+            <div class="animate-on-scroll card-hover rounded-card bg-white p-8 shadow-sm">
+              <div class="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-warm-100">
+                <svg class="h-7 w-7 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
+                </svg>
+              </div>
+              <h3 class="text-xl font-bold text-warm-800">大数据分析匹配</h3>
+              <p class="mt-3 text-sm leading-relaxed text-warm-400">
+                基于数百万份真实考生数据，运用深度学习算法，精准匹配你的特质与专业要求，推荐成功率高达96%。
+              </p>
+            </div>
+
+            <!-- 卡片3：个性化报告解读 -->
+            <div class="animate-on-scroll card-hover rounded-card bg-white p-8 shadow-sm md:col-span-2 lg:col-span-1">
+              <div class="mb-6 flex h-14 w-14 items-center justify-center rounded-2xl bg-warm-100">
+                <svg class="h-7 w-7 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+                </svg>
+              </div>
+              <h3 class="text-xl font-bold text-warm-800">个性化报告解读</h3>
+              <p class="mt-3 text-sm leading-relaxed text-warm-400">
+                生成详细的专业分析报告，包含匹配度评分、职业发展前景、推荐院校等维度，帮你全面了解每个选择。
+              </p>
+            </div>
           </div>
         </div>
-      </div>
-    </footer>
+      </section>
+
+      <!-- ============================================================
+           4. 流程展示区
+           ============================================================ -->
+      <section class="px-6 py-20 md:py-32">
+        <div class="mx-auto max-w-5xl">
+          <h2 class="animate-on-scroll text-center text-3xl font-bold tracking-tight text-warm-900 md:text-4xl">
+            三步找到理想专业
+          </h2>
+
+          <!-- 桌面端水平步骤条 -->
+          <div class="mt-16 hidden md:block">
+            <div class="relative flex items-start justify-between">
+              <div class="gradient-line absolute left-[16%] right-[16%] top-7" />
+
+              <div class="step-item relative z-10 flex w-1/3 flex-col items-center text-center">
+                <div class="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
+                  1
+                </div>
+                <h3 class="mt-6 text-lg font-bold text-warm-800">智能对话</h3>
+                <p class="mt-2 max-w-[200px] text-sm text-warm-400">5分钟完成测评，轻松自然地回答问题</p>
+              </div>
+
+              <div class="step-item relative z-10 flex w-1/3 flex-col items-center text-center">
+                <div class="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
+                  2
+                </div>
+                <h3 class="mt-6 text-lg font-bold text-warm-800">AI分析</h3>
+                <p class="mt-2 max-w-[200px] text-sm text-warm-400">深度学习模型精准匹配你的特质</p>
+              </div>
+
+              <div class="step-item relative z-10 flex w-1/3 flex-col items-center text-center">
+                <div class="flex h-14 w-14 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
+                  3
+                </div>
+                <h3 class="mt-6 text-lg font-bold text-warm-800">获得推荐</h3>
+                <p class="mt-2 max-w-[200px] text-sm text-warm-400">获取详细专业报告和志愿建议</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 移动端垂直步骤条 -->
+          <div class="mt-12 md:hidden">
+            <div class="relative">
+              <div class="gradient-line-vertical absolute left-7 top-0 bottom-0" />
+
+              <div class="step-item relative z-10 mb-10 flex items-start gap-4 pl-16">
+                <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
+                  1
+                </div>
+                <div>
+                  <h3 class="text-lg font-bold text-warm-800">智能对话</h3>
+                  <p class="mt-1 text-sm text-warm-400">5分钟完成测评，轻松自然地回答问题</p>
+                </div>
+              </div>
+
+              <div class="step-item relative z-10 mb-10 flex items-start gap-4 pl-16">
+                <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
+                  2
+                </div>
+                <div>
+                  <h3 class="text-lg font-bold text-warm-800">AI分析</h3>
+                  <p class="mt-1 text-sm text-warm-400">深度学习模型精准匹配你的特质</p>
+                </div>
+              </div>
+
+              <div class="step-item relative z-10 flex items-start gap-4 pl-16">
+                <div class="flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-warm-500 to-warm-300 text-lg font-bold text-white shadow-lg">
+                  3
+                </div>
+                <div>
+                  <h3 class="text-lg font-bold text-warm-800">获得推荐</h3>
+                  <p class="mt-1 text-sm text-warm-400">获取详细专业报告和志愿建议</p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           5. 用户评价区
+           ============================================================ -->
+      <section class="bg-warm-100/50 px-6 py-20 md:py-32">
+        <div class="mx-auto max-w-6xl">
+          <h2 class="animate-on-scroll text-center text-3xl font-bold tracking-tight text-warm-900 md:text-4xl">
+            听听他们怎么说
+          </h2>
+          <p class="mx-auto mt-4 max-w-xl text-center text-base text-warm-400">
+            超过10,000+考生和家长已经通过我们的测评找到了方向
+          </p>
+
+          <!-- 桌面端网格布局 -->
+          <div class="mt-12 hidden grid-cols-1 gap-6 md:grid md:grid-cols-3">
+            <div
+              v-for="(item, index) in testimonials"
+              :key="index"
+              class="animate-on-scroll card-hover rounded-card border-l-4 border-warm-400 bg-white p-8 shadow-sm"
+            >
+              <p class="text-sm italic leading-relaxed text-warm-600">
+                "{{ item.quote }}"
+              </p>
+              <div class="mt-6 border-t border-warm-100 pt-4">
+                <p class="text-sm font-semibold text-warm-800">{{ item.name }}</p>
+                <p class="mt-0.5 text-xs text-warm-400">{{ item.title }}</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 移动端轮播布局 -->
+          <div class="mt-8 md:hidden">
+            <div class="overflow-hidden rounded-card bg-white p-8 shadow-sm">
+              <transition-group name="fade" mode="out-in">
+                <div :key="activeTestimonial">
+                  <p class="text-sm italic leading-relaxed text-warm-600">
+                    "{{ testimonials[activeTestimonial].quote }}"
+                  </p>
+                  <div class="mt-6 border-t border-warm-100 pt-4">
+                    <p class="text-sm font-semibold text-warm-800">{{ testimonials[activeTestimonial].name }}</p>
+                    <p class="mt-0.5 text-xs text-warm-400">{{ testimonials[activeTestimonial].title }}</p>
+                  </div>
+                </div>
+              </transition-group>
+            </div>
+            <div class="mt-6 flex justify-center gap-2">
+              <button
+                v-for="(_, index) in testimonials"
+                :key="index"
+                class="h-2 w-8 rounded-full transition-all duration-300"
+                :class="activeTestimonial === index ? 'bg-gradient-to-r from-warm-500 to-warm-300' : 'bg-warm-200'"
+                @click="showTestimonial(index)"
+              />
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           6. 底部CTA区
+           ============================================================ -->
+      <section class="relative overflow-hidden px-6 py-20 md:py-32">
+        <div class="pointer-events-none absolute inset-0">
+          <div class="absolute left-1/2 top-1/2 h-[500px] w-[500px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-gradient-to-br from-warm-200/30 to-warm-300/20 blur-3xl" />
+        </div>
+
+        <div class="relative z-10 mx-auto max-w-3xl text-center">
+          <h2 class="animate-on-scroll text-3xl font-bold tracking-tight text-warm-900 md:text-5xl">
+            准备好探索你的<br class="md:hidden" />
+            <span class="gradient-text">未来</span>
+            了吗？
+          </h2>
+          <p class="mx-auto mt-4 max-w-lg text-base text-warm-400 md:text-lg">
+            只需5分钟，AI将为你量身定制专业推荐报告
+          </p>
+
+          <button class="btn-primary mx-auto mt-8 text-lg" @click="handleStartAssessment">
+            立即开始测评
+          </button>
+
+          <div class="mt-12 flex flex-wrap items-center justify-center gap-8">
+            <div class="flex items-center gap-2 text-sm text-warm-400">
+              <svg class="h-5 w-5 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285z" />
+              </svg>
+              <span>数据安全</span>
+            </div>
+            <div class="flex items-center gap-2 text-sm text-warm-400">
+              <svg class="h-5 w-5 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M4.26 10.147a60.436 60.436 0 00-.491 6.347A48.627 48.627 0 0112 20.904a48.627 48.627 0 018.232-4.41 60.46 60.46 0 00-.491-6.347m-15.482 0a50.57 50.57 0 00-2.658-.813A59.905 59.905 0 0112 3.493a59.902 59.902 0 0110.399 5.84c-.896.248-1.783.52-2.658.814m-15.482 0A50.697 50.697 0 0112 13.489a50.702 50.702 0 017.74-3.342M6.75 15a.75.75 0 100-1.5.75.75 0 000 1.5zm0 0v-3.675A55.378 55.378 0 0112 8.443m-7.007 11.55A5.981 5.981 0 006.75 15.75v-1.5" />
+              </svg>
+              <span>权威认证</span>
+            </div>
+            <div class="flex items-center gap-2 text-sm text-warm-400">
+              <svg class="h-5 w-5 text-warm-500" fill="none" stroke="currentColor" stroke-width="1.5" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M15 19.128a9.38 9.38 0 002.625.372 9.337 9.337 0 004.121-.952 4.125 4.125 0 00-7.533-2.493M15 19.128v-.003c0-1.113-.285-2.16-.786-3.07M15 19.128v.106A12.318 12.318 0 018.624 21c-2.331 0-4.512-.645-6.374-1.766l-.001-.109a6.375 6.375 0 0111.964-3.07M12 6.375a3.375 3.375 0 11-6.75 0 3.375 3.375 0 016.75 0zm8.25 2.25a2.625 2.625 0 11-5.25 0 2.625 2.625 0 015.25 0z" />
+              </svg>
+              <span>已有 10,000+ 考生完成测评</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ============================================================
+           7. 页脚
+           ============================================================ -->
+      <footer class="border-t border-warm-200 bg-warm-100/50 px-6 py-10">
+        <div class="mx-auto max-w-6xl">
+          <div class="flex flex-col items-center justify-between gap-4 md:flex-row">
+            <p class="text-sm text-warm-400">
+              &copy; 2024 专业推荐. All rights reserved.
+            </p>
+            <div class="flex items-center gap-6">
+              <a href="#privacy" class="text-sm text-warm-400 transition-colors duration-300 hover:text-warm-600">
+                隐私政策
+              </a>
+              <a href="#contact" class="text-sm text-warm-400 transition-colors duration-300 hover:text-warm-600">
+                联系我们
+              </a>
+              <a href="#terms" class="text-sm text-warm-400 transition-colors duration-300 hover:text-warm-600">
+                使用条款
+              </a>
+            </div>
+          </div>
+        </div>
+      </footer>
+    </template>
   </div>
 </template>
 
@@ -620,6 +859,335 @@ const showTestimonial = (index: number) => {
 
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(140, 115, 71, 0.25);
+}
+
+/* 报告页样式 */
+.report-page {
+  min-height: 100vh;
+  min-height: 100dvh;
+  background:
+    linear-gradient(180deg, #f6f8fb 0%, #fff7ed 48%, #f7f3ed 100%);
+  color: #1f2328;
+}
+.report-nav {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  min-height: 58px;
+  padding: 8px 16px;
+  display: grid;
+  grid-template-columns: minmax(110px, 140px) 1fr minmax(110px, 140px);
+  align-items: center;
+  gap: 10px;
+  background: rgba(255, 255, 255, 0.92);
+  border-bottom: 1px solid #e6eaf0;
+  backdrop-filter: blur(12px);
+}
+.report-nav strong {
+  text-align: center;
+  font-size: 16px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.report-nav button {
+  border: none;
+  border-radius: 10px;
+  padding: 9px 14px;
+  background: #1f6feb;
+  color: white;
+  font-weight: 750;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.report-nav button:first-child {
+  background: transparent;
+  color: #1f6feb;
+}
+.report-nav .home-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  background: #f2f6fd;
+  color: #1f6feb;
+}
+.report-nav .home-btn svg {
+  flex-shrink: 0;
+}
+.report-shell {
+  width: min(100%, 920px);
+  margin: 0 auto;
+  padding: 24px 18px 56px;
+}
+.report-title {
+  background:
+    linear-gradient(135deg, #14213d 0%, #21566f 58%, #2f6f73 100%);
+  color: white;
+  border-radius: 16px 16px 0 0;
+  padding: 30px;
+}
+.report-title p {
+  margin: 0;
+  color: #9ec5ff;
+  font-size: 13px;
+  font-weight: 800;
+}
+.report-title h1 {
+  margin: 8px 0 0;
+  font-size: clamp(28px, 6vw, 44px);
+  line-height: 1.1;
+}
+.report-time {
+  margin-top: 10px;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 13px;
+}
+.report-content {
+  background: white;
+  border: 1px solid #e6eaf0;
+  border-top: none;
+  border-radius: 0 0 16px 16px;
+  padding: 34px;
+  box-shadow: 0 18px 50px rgba(31, 41, 55, 0.08);
+  overflow-wrap: anywhere;
+}
+.report-content :deep(h1),
+.report-content :deep(h2),
+.report-content :deep(h3) {
+  color: #1f2328;
+  line-height: 1.25;
+}
+.report-content :deep(h1) {
+  font-size: 26px;
+  margin: 4px 0 18px;
+}
+.report-content :deep(h2) {
+  font-size: 22px;
+  margin: 34px 0 14px;
+  padding: 13px 14px;
+  border-left: 4px solid #2f6f73;
+  border-radius: 0 10px 10px 0;
+  background: #f1f7f6;
+}
+.report-content :deep(h3) {
+  font-size: 18px;
+  margin: 24px 0 10px;
+}
+.report-content :deep(p),
+.report-content :deep(li) {
+  color: #374151;
+  font-size: 16px;
+  line-height: 1.85;
+}
+.report-content :deep(ul) {
+  padding-left: 0;
+  list-style: none;
+}
+.report-content :deep(li) {
+  position: relative;
+  margin: 9px 0;
+  padding-left: 22px;
+}
+.report-content :deep(li::before) {
+  content: "";
+  position: absolute;
+  left: 4px;
+  top: 0.84em;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #2f6f73;
+}
+.report-content :deep(strong) {
+  color: #1f6feb;
+}
+.report-content :deep(code) {
+  background: #f2ede7;
+  border-radius: 6px;
+  padding: 2px 5px;
+}
+.report-content :deep(.table-scroll) {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  margin: 18px 0 22px;
+  border: 1px solid #e6eaf0;
+  border-radius: 12px;
+}
+.report-content :deep(table) {
+  min-width: 620px;
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+}
+.report-content :deep(th),
+.report-content :deep(td) {
+  padding: 12px 14px;
+  border-bottom: 1px solid #e6eaf0;
+  text-align: left;
+  vertical-align: top;
+}
+.report-content :deep(th) {
+  background: #f6f8fb;
+  color: #1f2328;
+  font-weight: 800;
+}
+.report-content :deep(tr:last-child td) {
+  border-bottom: none;
+}
+.report-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+  margin-top: 28px;
+}
+
+/* 支付墙 */
+.paywall-shell {
+  min-height: calc(100vh - 58px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px 18px 56px;
+}
+.paywall-card {
+  width: min(100%, 640px);
+  background: white;
+  border: 1px solid #eadfd3;
+  border-radius: 18px;
+  padding: 32px;
+  box-shadow: 0 18px 50px rgba(38, 29, 20, 0.08);
+  text-align: center;
+}
+.paywall-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+.paywall-card h1 {
+  font-size: clamp(26px, 5vw, 38px);
+  font-weight: 900;
+  line-height: 1.15;
+}
+.paywall-sub {
+  max-width: 520px;
+  margin: 12px auto 0;
+  color: #62584f;
+  line-height: 1.7;
+}
+.preview-card {
+  position: relative;
+  margin-top: 24px;
+  min-height: 260px;
+  max-height: 380px;
+  overflow: hidden;
+  background: #faf7f2;
+  border: 1px solid #eee2d6;
+  border-radius: 14px;
+  text-align: left;
+}
+.preview-card pre {
+  margin: 0;
+  padding: 22px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  line-height: 1.8;
+  color: #4e463f;
+  font-family: inherit;
+  font-size: 15px;
+}
+.preview-card .fade {
+  position: absolute;
+  inset: auto 0 0;
+  height: 120px;
+  background: linear-gradient(to bottom, rgba(255,255,255,0), #fff);
+}
+.paywall-actions {
+  margin-top: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.pay-btn {
+  border: none;
+  border-radius: 12px;
+  padding: 14px 16px;
+  background: #1f6feb;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+}
+.pay-btn .price {
+  font-size: 20px;
+  font-weight: 900;
+}
+.pay-btn .label {
+  font-size: 15px;
+  font-weight: 700;
+}
+.ghost-btn {
+  border: none;
+  border-radius: 12px;
+  padding: 13px 16px;
+  background: #f2ede7;
+  color: #3d352e;
+  font-size: 15px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+@media (max-width: 640px) {
+  .report-nav {
+    grid-template-columns: 96px 1fr 96px;
+    padding: 8px 10px;
+  }
+  .report-nav button {
+    padding: 8px 10px;
+    font-size: 13px;
+  }
+  .report-nav strong {
+    font-size: 14px;
+  }
+  .report-shell {
+    padding: 12px 10px 36px;
+  }
+  .report-title {
+    padding: 22px 16px;
+    border-radius: 12px 12px 0 0;
+  }
+  .report-content {
+    padding: 20px 14px;
+    border-radius: 0 0 12px 12px;
+  }
+  .report-content :deep(p),
+  .report-content :deep(li) {
+    font-size: 15px;
+    line-height: 1.75;
+  }
+  .report-content :deep(h2) {
+    font-size: 19px;
+    padding: 11px 12px;
+  }
+  .report-content :deep(table) {
+    min-width: 560px;
+  }
+  .paywall-card {
+    padding: 22px 18px;
+  }
+  .preview-card {
+    min-height: 220px;
+    max-height: 320px;
+  }
+  .preview-card pre {
+    padding: 18px;
+    font-size: 14px;
+  }
+  .report-actions {
+    flex-direction: column;
+  }
 }
 
 /* 响应式优化 */

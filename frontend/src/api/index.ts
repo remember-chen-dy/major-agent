@@ -1,4 +1,5 @@
-const API_BASE = '';
+// 后端地址：开发时留空（走 Vite 代理），生产环境通过 .env 文件设置 VITE_API_BASE
+const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 // 获取设备 ID
 const getDeviceId = (): string => {
@@ -44,7 +45,30 @@ export const api = {
     request(`/api/users/${userId}/sessions`),
 
   getLatestReport: (userId: string) =>
-    request(`/api/users/${userId}/latest-report`),
+    request(`/api/users/${userId}/reports/latest`),
+
+  getUserReports: (userId: string) =>
+    request(`/api/users/${userId}/reports`),
+
+  getReportBySession: (sessionId: string, userId: string) =>
+    request(`/api/reports/by-session/${sessionId}?user_id=${encodeURIComponent(userId)}`),
+
+  saveReport: (data: {
+    user_id: string;
+    session_id?: string;
+    report_title?: string;
+    report_content: string;
+  }) =>
+    request('/api/reports', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  payReport: (reportId: number, paymentMethod = 'wechat') =>
+    request(`/api/reports/${reportId}/pay`, {
+      method: 'POST',
+      body: JSON.stringify({ payment_method: paymentMethod }),
+    }),
 
   // 会话相关
   createSession: (title?: string) =>
