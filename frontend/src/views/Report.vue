@@ -48,14 +48,26 @@ const loadReport = async () => {
         loading.value = false;
         return;
       }
-      reportData = {
-        report_id: 0,
-        report_content: data.report || '',
-        report_title: '志愿规划报告',
-        is_paid: true,
-        session_id: sessionId.value,
-        created_at: new Date().toISOString(),
-      };
+      if (authStore.userId && data.report) {
+        const saved = await api.saveReport({
+          user_id: authStore.userId,
+          session_id: sessionId.value,
+          report_title: '志愿规划报告',
+          report_content: data.report,
+        });
+        reportData = {
+          report_id: saved.report_id,
+          report_content: data.report,
+          report_title: saved.report_title || '志愿规划报告',
+          is_paid: false,
+          session_id: sessionId.value,
+          created_at: saved.created_at || new Date().toISOString(),
+        };
+      } else {
+        error.value = '报告支付记录创建失败，请稍后重试';
+        loading.value = false;
+        return;
+      }
     }
 
     // 未支付则跳转到解锁页

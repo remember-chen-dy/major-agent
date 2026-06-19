@@ -60,13 +60,25 @@ const loadReport = async () => {
         error.value = '报告还没有生成完成，请稍后再试';
         return;
       }
-      reportData = {
-        report_id: 0,
-        report_content: data.report || '',
-        report_title: '志愿规划报告',
-        is_paid: true,
-        session_id: sessionId.value,
-      };
+      if (authStore.userId && data.report) {
+        const saved = await api.saveReport({
+          user_id: authStore.userId,
+          session_id: sessionId.value,
+          report_title: '志愿规划报告',
+          report_content: data.report,
+        });
+        reportData = {
+          report_id: saved.report_id,
+          report_content: data.report,
+          report_title: saved.report_title || '志愿规划报告',
+          is_paid: false,
+          session_id: sessionId.value,
+          created_at: saved.created_at || new Date().toISOString(),
+        };
+      } else {
+        error.value = '报告支付记录创建失败，请稍后重试';
+        return;
+      }
     }
 
     report.value = reportData;
@@ -283,7 +295,8 @@ onBeforeUnmount(() => {
             <span class="original-price">¥29.9</span>
             <span class="price">¥3.00</span>
           </div>
-          <div class="price-hint">支付宝扫码支付 · 一次性解锁，永久查看</div>
+          <div class="price-hint" >支付宝扫码支付 · 一次性解锁，永久查看</div>
+          <div class="refund-hint" >本产品属于虚拟服务/数字商品，其特殊性在于一经发出即可被获取，故无法适用退货退款流程。</div>
 
           <button class="pay-btn" @click="handlePay" :disabled="paying">
             <span v-if="paying">正在等待支付宝支付...</span>
@@ -326,6 +339,7 @@ onBeforeUnmount(() => {
 
           <div class="payment-meta">
             <p class="save-tip">手机端可长按保存二维码图片，再打开支付宝扫码支付。</p>
+            <p class="refund-tip">虚拟产品，支付完成后不支持退款。</p>
             <p>订单号：{{ paymentOrder?.out_trade_no }}</p>
             <p v-if="paymentOrder?.gateway_error" class="gateway-note">{{ paymentOrder.gateway_error }}</p>
           </div>
@@ -537,6 +551,12 @@ h1 {
   font-size: 12px;
   color: #8e8e93;
 }
+.refund-hint {
+  margin-top: 6px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #a47d61;
+}
 .pay-btn,
 .ghost-btn,
 .state-card button {
@@ -730,6 +750,10 @@ h1 {
   color: #3d352e;
   font-size: 13px;
   font-weight: 700;
+}
+.refund-tip {
+  color: #a47d61;
+  font-size: 11px;
 }
 .gateway-note {
   color: #8e6a4b;

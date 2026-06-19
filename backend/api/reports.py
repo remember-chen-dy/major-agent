@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from core.config import get_settings
 from core.dependencies import get_db
 from models.report import Report
+from models.session import Session
 from services.xpay_service import (
     XPayConfigError,
     XPayError,
@@ -144,7 +145,27 @@ async def get_report_by_session(
         report = result.scalar_one_or_none()
 
         if not report:
-            raise HTTPException(status_code=404, detail="报告不存在")
+            session_result = await db.execute(
+                select(Session).where(
+                    Session.id == session_id,
+                    Session.user_id == user_id,
+                    Session.report_status == "completed",
+                )
+            )
+            session = session_result.scalar_one_or_none()
+            if not session or not session.report:
+                raise HTTPException(status_code=404, detail="报告不存在")
+
+            report = Report(
+                user_id=user_id,
+                session_id=session_id,
+                report_title=_build_default_title(),
+                report_content=session.report,
+                is_paid=False,
+            )
+            db.add(report)
+            await db.commit()
+            await db.refresh(report)
 
         return {"report": _report_to_dict(report)}
     except HTTPException:
