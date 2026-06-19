@@ -139,8 +139,14 @@ onMounted(async () => {
   <main class="ready-page">
     <section class="ready-shell">
       <div class="hero">
-        <p class="eyebrow">报告已生成</p>
-        <h1>你的志愿规划报告已经准备好了</h1>
+        <p class="eyebrow">
+          <span class="dot" />
+          报告已生成
+        </p>
+        <h1>
+          <span class="title-line">你的志愿规划报告</span>
+          <span class="title-highlight">已经准备好了</span>
+        </h1>
         <p class="subtext">点击下方按钮支付 3 元即可查看完整报告。报告会直接在页面内展示，手机端也可以完整阅读。</p>
       </div>
 
@@ -182,8 +188,11 @@ onMounted(async () => {
             <span v-if="paying">支付处理中...</span>
             <span v-else>立即解锁完整报告</span>
           </button>
-          <button class="ghost-btn" @click="restartAssessment">重新测评</button>
-          <button class="ghost-btn" @click="goHome">返回首页</button>
+          <div class="secondary-actions">
+            <button class="text-link" @click="restartAssessment">重新测评</button>
+            <span class="divider">·</span>
+            <button class="text-link" @click="goHome">返回首页</button>
+          </div>
         </aside>
       </div>
     </section>
@@ -216,37 +225,43 @@ onMounted(async () => {
 .eyebrow {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  font-size: 11px;
+  gap: 8px;
+  font-size: 12px;
   font-weight: 800;
   color: #1f6feb;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-  background: linear-gradient(135deg, rgba(31, 111, 235, 0.14) 0%, rgba(31, 111, 235, 0.06) 100%);
-  border: 1px solid rgba(31, 111, 235, 0.22);
+  background: linear-gradient(135deg, rgba(31, 111, 235, 0.12) 0%, rgba(31, 111, 235, 0.04) 100%);
+  border: 1px solid rgba(31, 111, 235, 0.18);
   border-radius: 999px;
-  padding: 6px 12px;
-  box-shadow: 0 3px 10px rgba(31, 111, 235, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.6);
+  padding: 7px 14px;
+  box-shadow: 0 4px 12px rgba(31, 111, 235, 0.08);
 }
-.eyebrow::before {
-  content: '✓';
-  display: grid;
-  place-items: center;
-  width: 16px;
-  height: 16px;
+.eyebrow .dot {
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   background: linear-gradient(135deg, #1f6feb 0%, #4b8ff7 100%);
-  color: white;
-  font-size: 9px;
-  font-weight: 900;
-  box-shadow: 0 2px 5px rgba(31, 111, 235, 0.3);
+  box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.18);
 }
 h1 {
   max-width: 720px;
-  margin-top: 8px;
-  font-size: clamp(30px, 6vw, 52px);
-  line-height: 1.08;
+  margin-top: 14px;
+  font-size: clamp(32px, 6.5vw, 56px);
+  line-height: 1.12;
   font-weight: 900;
+  letter-spacing: -0.02em;
+}
+.title-line {
+  display: block;
+  color: #1f2328;
+}
+.title-highlight {
+  display: block;
+  background: linear-gradient(135deg, #1f6feb 0%, #4b8ff7 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 .subtext {
   max-width: 620px;
@@ -405,6 +420,34 @@ h1 {
   margin-top: 10px;
   background: #f2ede7;
   color: #3d352e;
+}
+.secondary-actions {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid rgba(234, 223, 211, 0.8);
+}
+.text-link {
+  border: none;
+  background: transparent;
+  color: #8e6a4b;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 6px;
+  transition: all 0.2s ease;
+}
+.text-link:hover {
+  color: #1f6feb;
+  background: rgba(31, 111, 235, 0.06);
+}
+.divider {
+  color: #d6c9bc;
+  font-weight: 700;
 }
 .state-card {
   padding: 24px;

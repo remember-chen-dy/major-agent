@@ -2,14 +2,20 @@
 
 使用 4 个独立工具分析考生画像，生成志愿规划报告。
 """
+import asyncio
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
+from functools import partial
 
 from duckduckgo_search import DDGS
 from langchain_core.messages import AIMessage
 
 from config.llm import get_llm
 from workflow.state import AssessmentState
+
+# 全局线程池，用于并发执行同步工具函数
+_tool_executor = ThreadPoolExecutor(max_workers=4, thread_name_prefix="rewoo_tool_")
 
 
 # ============================================================
@@ -21,7 +27,7 @@ def _score_band_analyzer(score: int, rank: int) -> str:
     """根据分数和位次分析院校层次（优先使用网络搜索获取最新数据）"""
     try:
         year = datetime.now().year
-        query = f"{year}高考{score}分 位次{rank} 能报考什么大学 冲稳保策略"
+        query = f"{year}高考{score}分 位次{rank} 能报考什么大学 冲稳保策略,以及这个院校对应的专业"
 
         # 使用新版 DuckDuckGo API
         with DDGS() as ddgs:
@@ -32,15 +38,15 @@ def _score_band_analyzer(score: int, rank: int) -> str:
         band_analysis = llm.invoke(
             f"根据以下搜索结果，为一位高考{score}分、全省位次{rank}名的考生"
             f"整理出冲稳保建议，分别从冲刺、稳妥、保底三个角度分析，"
-            f"输出包含院校名称的冲稳保表格：\n\n{search_result}"
+            f"输出包含院校名称和专业方向的冲稳保表格：\n\n{search_result}"
         )
         return f"""## 成绩定位分析（基于 {year} 年网络数据）
-        
-- **分数**：{score} 分
-- **位次**：全省第 {rank} 名
+            
+                - **分数**：{score} 分
+                - **位次**：全省第 {rank} 名
 
-{band_analysis.content}
-"""
+                {band_analysis.content}
+                 """
     except Exception:
         # 搜索失败时使用降级方案
         if score >= 650:
@@ -313,7 +319,7 @@ async def planner_node(state: AssessmentState) -> dict:
 
 
 async def executor_node(state: AssessmentState) -> dict:
-    """Executor —— 纯代码执行工具调用，不调 LLM"""
+    """Executor —— 使用线程池并发执行工具调用，不调 LLM"""
     planner_output = state.get("planner_output", [])
 
     tool_map = {
@@ -323,16 +329,35 @@ async def executor_node(state: AssessmentState) -> dict:
         "city_advisor": _city_advisor,
     }
 
-    tool_results = {}
-    for call in planner_output:
+    if not planner_output:
+        return {"tool_results": {}, "current_step": "solver"}
+
+    loop = asyncio.get_event_loop()
+
+    async def execute_tool(call: dict):
         tool_name = call.get("tool", "")
         args = call.get("args", {})
-        if tool_name in tool_map:
-            try:
-                result = tool_map[tool_name](**args)
-                tool_results[tool_name] = result
-            except Exception as e:
-                tool_results[tool_name] = f"工具执行失败: {e}"
+
+        if tool_name not in tool_map:
+            return tool_name, {"error": f"未知工具: {tool_name}"}
+
+        try:
+            # 使用 partial 包装函数和参数
+            func = partial(tool_map[tool_name], **args)
+            # 在线程池中执行，避免阻塞事件循环
+            result = await loop.run_in_executor(_tool_executor, func)
+            return tool_name, result
+        except Exception as e:
+            return tool_name, {"error": f"工具执行失败: {e}"}
+
+    # 并发执行所有工具
+    tasks = [execute_tool(call) for call in planner_output]
+    results = await asyncio.gather(*tasks)
+
+    # 组装结果
+    tool_results = {}
+    for tool_name, result in results:
+        tool_results[tool_name] = result
 
     return {
         "tool_results": tool_results,
@@ -348,56 +373,58 @@ async def solver_node(state: AssessmentState) -> dict:
     tool_results = state.get("tool_results", {})
 
     solver_prompt = f"""
-你是一位温暖而专业的高考志愿规划师。根据以下信息，为考生撰写一份完整的志愿规划报告。
+        你是一位温暖而专业的高考志愿规划师。根据以下信息，为考生撰写一份完整的志愿规划报告。
 
-## 考生画像
-{json.dumps(user_profile, ensure_ascii=False, indent=2)}
+        ## 考生画像
+        {json.dumps(user_profile, ensure_ascii=False, indent=2)}
 
-## 工具分析结果
-{json.dumps(tool_results, ensure_ascii=False, indent=2)}
+        ## 工具分析结果
+        {json.dumps(tool_results, ensure_ascii=False, indent=2)}
 
-请用 Markdown 格式输出报告，包含以下章节：
+        请用 Markdown 格式输出报告，包含以下章节：
 
-# 🎓 高考志愿规划报告
+        # 🎓 高考志愿规划报告
 
-## 一、成绩定位
-基于分数和位次，分析考生所处竞争层次，给出总体判断。
+        ## 一、成绩定位
+        基于分数和位次，分析考生所处竞争层次，给出总体判断。
 
-## 二、冲稳保院校推荐
-用表格列出冲刺、稳妥、保底三个层次的推荐院校（每个层次 2-3 所）。
+        ## 二、冲稳保院校推荐
+        用表格列出冲刺、稳妥、保底三个层次的推荐院校和专业方向（每个层次 2-3 所），需要提醒是当年最新数据，并给出查询网站名称相关。
 
-## 三、专业方向建议
-推荐 3-5 个最匹配的专业，说明理由和就业前景。
+        ## 三、专业方向建议
+        推荐 3-5 个最匹配的专业，说明理由和就业前景。
 
-## 四、专业四年后就业前景分析
-分析专业四年后就业前景，包括就业率、薪资范围、工作环境等。
+        ## 四、专业四年后就业前景分析
+        分析专业四年后就业前景，包括就业率、薪资范围、工作环境等。
 
-## 五、避坑提醒
-基于雷区标签和考生特点，提醒需要避开的方向和常见误区。
+        ## 五、避坑提醒
+        基于雷区标签和考生特点，提醒需要避开的方向和常见误区。
 
-## 六、城市与院校选择策略
-结合城市偏好和考生特点，提醒需要避开的方向和常见误区。
+        ## 六、城市与院校选择策略
+        结合城市偏好和考生特点，提醒需要避开的方向和常见误区。
 
-## 七、个性化结语
-温暖鼓励的结尾，让考生感到被理解和支持。
+        ## 七、下一步行动
+        给出具体的下一步行动建议，例如「建议去 B 站搜这两个专业的大三课表看看，感受一下实际学什么」，这里可以详细些。
 
-### 语言要求
-- 亲切、专业、有温度
-- 像一位关心学生的老师在认真给出建议
-- 不要过于绝对化的表述
-- 对于分数偏低的同学给予鼓励，对分数较高的同学给予肯定
-- 对于专业方向建议，要根据考生的个人特点和目标，给出符合其需求的专业建议
-- 对于避坑提醒，要根据考生的个人特点和目标，给出符合其需求的避坑建议
-- 使用「建议」「可以考虑」「值得关注」等措辞
+        ## 八、个性化结语
+        温暖鼓励的结尾，让考生感到被理解和支持。
 
-### 补充要求
-- **结合用户画像的具体细节**：提到心流时刻、性格倾向时，引用用户原话或具体标签，例如「你提到喜欢拆解组装东西，这正是机械/电子类专业的核心乐趣」，让用户感觉被真正理解
-- **避免制造焦虑**：不使用「天坑专业」「毕业即失业」等恐慌性表述，改从「这个方向目前竞争激烈，建议同步关注 XX 作为备选」的角度
-- **给出下一步行动**：每章节末尾留一个具体的行动建议，例如「建议去 B 站搜这两个专业的大三课表看看，感受一下实际学什么」
-- **承认不确定性**：对于预测性内容（就业趋势、行业前景），加「基于当前趋势」「未来可能有变化」等限定词，不把话说死
-- **口语化但不过分随意**：可以偶尔用「其实」「说实话」「帮你捋一捋」这类词，但避免「绝绝子」「码住」「家人们」等网络用语
-- **逻辑链条完整**：推荐一个专业时，必须说清「因为你的 XX 特质 + XX 外部条件 → 所以推荐 XX」，让用户理解推导过程而非被动接受结论
-- **报告长度控制在 1500-2500 字**：太短显得敷衍，太长没人看完。冲稳保表格不计入字数
+        ### 语言要求
+        - 亲切、专业、有温度
+        - 像一位关心学生的老师在认真给出建议
+        - 不要过于绝对化的表述
+        - 对于分数偏低的同学给予鼓励，对分数较高的同学给予肯定
+        - 对于专业方向建议，要根据考生的个人特点和目标，给出符合其需求的专业建议
+        - 对于避坑提醒，要根据考生的个人特点和目标，给出符合其需求的避坑建议
+        - 使用「建议」「可以考虑」「值得关注」等措辞
+
+        ### 补充要求
+        - **结合用户画像的具体细节**：提到心流时刻、性格倾向时，引用用户原话或具体标签，例如「你提到喜欢拆解组装东西，这正是机械/电子类专业的核心乐趣」，让用户感觉被真正理解
+        - **避免制造焦虑**：不使用「天坑专业」「毕业即失业」等恐慌性表述，改从「这个方向目前竞争激烈，建议同步关注 XX 作为备选」的角度
+        - **承认不确定性**：对于预测性内容（就业趋势、行业前景），加「基于当前趋势」「未来可能有变化」等限定词，不把话说死
+        - **口语化但不过分随意**：可以偶尔用「其实」「说实话」「帮你捋一捋」这类词，但避免「绝绝子」「码住」「家人们」等网络用语
+        - **逻辑链条完整**：推荐一个专业时，必须说清「因为你的 XX 特质 + XX 外部条件 → 所以推荐 XX」，让用户理解推导过程而非被动接受结论
+        - **报告长度控制在 1500-2500 字**：太短显得敷衍，太长没人看完。冲稳保表格不计入字数
 """
 
     response = await llm.ainvoke(solver_prompt)
