@@ -64,11 +64,14 @@ export const api = {
       body: JSON.stringify(data),
     }),
 
-  payReport: (reportId: number, paymentMethod = 'wechat') =>
+  payReport: (reportId: number, paymentMethod = 'alipay') =>
     request(`/api/reports/${reportId}/pay`, {
       method: 'POST',
       body: JSON.stringify({ payment_method: paymentMethod }),
     }),
+
+  getReportPaymentStatus: (reportId: number, outTradeNo?: string) =>
+    request(`/api/reports/${reportId}/payment-status${outTradeNo ? `?out_trade_no=${encodeURIComponent(outTradeNo)}` : ''}`),
 
   // 会话相关
   createSession: (title?: string) =>

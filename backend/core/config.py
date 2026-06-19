@@ -31,6 +31,15 @@ class Settings(PydanticBaseSettings):
     # CORS 配置
     CORS_ORIGINS: list[str] = Field(default=["*"],description="CORS 允许的前端地址")
 
+    # ZPAY / xpay 支付配置
+    XPAY_GATEWAY_URL: str = Field(default="https://zpayz.cn/", description="xpay 支付网关地址")
+    XPAY_PID: str = Field(default="", description="xpay 商户 ID")
+    XPAY_KEY: str = Field(default="", description="xpay 商户密钥")
+    XPAY_REPORT_AMOUNT: str = Field(default="3.00", description="报告解锁金额")
+    XPAY_REPORT_NAME: str = Field(default="高考志愿规划报告解锁", description="报告支付商品名称")
+    XPAY_SITE_NAME: str = Field(default="", description="支付页面站点名称")
+    PAYMENT_PUBLIC_BASE_URL: str = Field(default="", description="支付回调可访问的后端公网地址")
+
     model_config = {"env_file": ".env", "env_file_encoding": "utf-8"}
 
 

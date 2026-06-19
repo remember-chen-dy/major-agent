@@ -95,12 +95,9 @@ const loadLatestReport = async () => {
 const handlePayReport = async () => {
   if (!latestReport.value) return;
 
-  try {
-    await api.payReport(latestReport.value.report_id);
-    latestReport.value.is_paid = true;
-  } catch (error) {
-    console.error('支付失败:', error);
-    alert('支付处理失败，请稍后重试');
+  const sessionId = latestReport.value.session_id;
+  if (sessionId) {
+    router.push(`/report/${sessionId}/unlock`);
   }
 };
 

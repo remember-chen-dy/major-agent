@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { useAuthStore } from '../stores/auth';
@@ -15,6 +15,11 @@ const loading = ref(true);
 const error = ref('');
 const report = ref<any>(null);
 const paying = ref(false);
+const paymentDialogOpen = ref(false);
+const paymentOrder = ref<any>(null);
+const paymentStatus = ref<'idle' | 'creating' | 'waiting' | 'success' | 'error'>('idle');
+const paymentError = ref('');
+let pollTimer: number | null = null;
 
 const valueItems = [
   '成绩定位与院校层次分析',
@@ -87,6 +92,86 @@ const reportPreview = computed(() => {
     .join('\n');
 });
 
+const paymentFrameUrl = computed(() => {
+  if (!paymentOrder.value) return '';
+  return paymentOrder.value.pay_url || paymentOrder.value.cashier_url || '';
+});
+
+const paymentQrImage = computed(() => {
+  const image = paymentOrder.value?.qr_image;
+  if (!image) return '';
+  if (image.startsWith('data:') || image.startsWith('http://') || image.startsWith('https://')) {
+    return image;
+  }
+  return `data:image/png;base64,${image}`;
+});
+
+const paymentOpenUrl = computed(() => {
+  if (!paymentOrder.value) return '';
+  return paymentOrder.value.pay_url2 || paymentOrder.value.pay_url || paymentOrder.value.cashier_url || '';
+});
+
+const closePaymentDialog = () => {
+  paymentDialogOpen.value = false;
+  paying.value = false;
+  stopPaymentPolling();
+};
+
+const stopPaymentPolling = () => {
+  if (pollTimer) {
+    window.clearInterval(pollTimer);
+    pollTimer = null;
+  }
+};
+
+const confirmPaymentSuccess = () => {
+  paymentStatus.value = 'success';
+  report.value.is_paid = true;
+  closePaymentDialog();
+  router.replace(`/report/${sessionId.value}`);
+};
+
+const checkPaymentStatus = async () => {
+  if (!report.value?.report_id || !paymentOrder.value?.out_trade_no) return;
+
+  try {
+    const data = await api.getReportPaymentStatus(
+      report.value.report_id,
+      paymentOrder.value.out_trade_no
+    );
+    if (data.is_paid) {
+      confirmPaymentSuccess();
+    }
+  } catch (error) {
+    console.warn('查询支付状态失败:', error);
+  }
+};
+
+const startPaymentPolling = () => {
+  stopPaymentPolling();
+  pollTimer = window.setInterval(checkPaymentStatus, 3000);
+};
+
+const openPaymentInNewWindow = () => {
+  if (!paymentOpenUrl.value) return;
+  window.open(paymentOpenUrl.value, '_blank', 'noopener,noreferrer');
+};
+
+const retryPayment = () => {
+  paying.value = false;
+  handlePay();
+};
+
+const handlePaymentMessage = (event: MessageEvent) => {
+  const data = event.data;
+  if (!data || data.type !== 'xpay-return') return;
+  if (data.paid && Number(data.reportId) === Number(report.value?.report_id)) {
+    confirmPaymentSuccess();
+  } else {
+    checkPaymentStatus();
+  }
+};
+
 const handlePay = async () => {
   if (!report.value || paying.value) return;
 
@@ -97,14 +182,24 @@ const handlePay = async () => {
   }
 
   paying.value = true;
+  paymentStatus.value = 'creating';
+  paymentError.value = '';
+  paymentOrder.value = null;
+  paymentDialogOpen.value = true;
   try {
-    await api.payReport(report.value.report_id);
-    report.value.is_paid = true;
-    router.replace(`/report/${sessionId.value}`);
+    const order = await api.payReport(report.value.report_id, 'alipay');
+    if (order.is_paid || order.paid) {
+      confirmPaymentSuccess();
+      return;
+    }
+
+    paymentOrder.value = order;
+    paymentStatus.value = 'waiting';
+    startPaymentPolling();
   } catch (error) {
     console.error('支付失败:', error);
-    alert('支付处理失败，请稍后重试');
-  } finally {
+    paymentStatus.value = 'error';
+    paymentError.value = error instanceof Error ? error.message : '支付处理失败，请稍后重试';
     paying.value = false;
   }
 };
@@ -131,7 +226,13 @@ const restartAssessment = async () => {
 };
 
 onMounted(async () => {
+  window.addEventListener('message', handlePaymentMessage);
   await loadReport();
+});
+
+onBeforeUnmount(() => {
+  window.removeEventListener('message', handlePaymentMessage);
+  stopPaymentPolling();
 });
 </script>
 
@@ -147,7 +248,7 @@ onMounted(async () => {
           <span class="title-line">你的志愿规划报告</span>
           <span class="title-highlight">已经准备好了</span>
         </h1>
-        <p class="subtext">点击下方按钮支付 3 元即可查看完整报告。报告会直接在页面内展示，手机端也可以完整阅读。</p>
+        <p class="subtext">点击下方按钮使用支付宝支付 3 元即可查看完整报告。报告会直接在页面内展示，手机端也可以完整阅读。</p>
       </div>
 
       <div v-if="loading" class="state-card">正在确认报告状态...</div>
@@ -182,11 +283,11 @@ onMounted(async () => {
             <span class="original-price">¥29.9</span>
             <span class="price">¥3.00</span>
           </div>
-          <div class="price-hint">限时特惠 · 一次性解锁，永久查看</div>
+          <div class="price-hint">支付宝扫码支付 · 一次性解锁，永久查看</div>
 
           <button class="pay-btn" @click="handlePay" :disabled="paying">
-            <span v-if="paying">支付处理中...</span>
-            <span v-else>立即解锁完整报告</span>
+            <span v-if="paying">正在等待支付宝支付...</span>
+            <span v-else>支付宝支付解锁完整报告</span>
           </button>
           <div class="secondary-actions">
             <button class="text-link" @click="restartAssessment">重新测评</button>
@@ -196,6 +297,46 @@ onMounted(async () => {
         </aside>
       </div>
     </section>
+
+    <div v-if="paymentDialogOpen" class="payment-overlay" @click.self="closePaymentDialog">
+      <section class="payment-dialog" role="dialog" aria-modal="true" aria-labelledby="payment-title">
+        <button class="dialog-close" type="button" aria-label="关闭支付弹框" @click="closePaymentDialog">×</button>
+        <div class="payment-head">
+          <span class="alipay-badge">支付宝</span>
+          <h2 id="payment-title">扫码支付 ¥3.00</h2>
+          <p>支付成功后会自动打开完整报告。</p>
+        </div>
+
+        <div v-if="paymentStatus === 'creating'" class="payment-state">正在创建支付宝订单...</div>
+        <div v-else-if="paymentStatus === 'error'" class="payment-state error">
+          <p>{{ paymentError }}</p>
+          <button class="retry-btn" type="button" @click="retryPayment">重新发起支付</button>
+        </div>
+        <div v-else class="payment-body">
+          <div v-if="paymentQrImage" class="qr-box">
+            <img :src="paymentQrImage" alt="支付宝支付二维码" />
+          </div>
+          <iframe
+            v-else-if="paymentFrameUrl"
+            class="payment-frame"
+            :src="paymentFrameUrl"
+            title="支付宝支付"
+          ></iframe>
+          <div v-else class="payment-state error">暂时无法获取支付二维码，请稍后重试。</div>
+
+          <div class="payment-meta">
+            <p class="save-tip">手机端可长按保存二维码图片，再打开支付宝扫码支付。</p>
+            <p>订单号：{{ paymentOrder?.out_trade_no }}</p>
+            <p v-if="paymentOrder?.gateway_error" class="gateway-note">{{ paymentOrder.gateway_error }}</p>
+          </div>
+
+          <div class="dialog-actions">
+            <button type="button" class="open-pay-btn" @click="openPaymentInNewWindow">打开支付宝收银台</button>
+            <button type="button" class="check-btn" @click="checkPaymentStatus">我已完成支付</button>
+          </div>
+        </div>
+      </section>
+    </div>
   </main>
 </template>
 
@@ -462,6 +603,147 @@ h1 {
   background: #1f6feb;
   color: white;
 }
+.payment-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 18px;
+  background: rgba(31, 35, 40, 0.48);
+  backdrop-filter: blur(4px);
+}
+.payment-dialog {
+  position: relative;
+  width: min(440px, 100%);
+  max-height: calc(100vh - 36px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid #eadfd3;
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgba(19, 28, 40, 0.28);
+  padding: 24px;
+}
+.dialog-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  width: 34px;
+  height: 34px;
+  border: none;
+  border-radius: 50%;
+  background: #f2ede7;
+  color: #3d352e;
+  font-size: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+.payment-head {
+  text-align: center;
+  padding: 6px 24px 16px;
+}
+.alipay-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  height: 28px;
+  border-radius: 999px;
+  background: #e8f3ff;
+  color: #1677ff;
+  font-size: 13px;
+  font-weight: 900;
+}
+.payment-head h2 {
+  margin-top: 12px;
+  font-size: 24px;
+  font-weight: 900;
+  color: #1f2328;
+}
+.payment-head p {
+  margin-top: 8px;
+  color: #62584f;
+  font-size: 14px;
+}
+.payment-state {
+  min-height: 220px;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  color: #62584f;
+  line-height: 1.7;
+}
+.payment-state.error {
+  color: #b42318;
+}
+.retry-btn,
+.open-pay-btn,
+.check-btn {
+  border: none;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 14px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.retry-btn,
+.open-pay-btn {
+  background: #1677ff;
+  color: #fff;
+}
+.qr-box {
+  width: min(280px, 100%);
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  margin: 0 auto;
+  border: 1px solid #eadfd3;
+  border-radius: 16px;
+  background: #fff;
+  padding: 16px;
+}
+.qr-box img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.payment-frame {
+  display: block;
+  width: 100%;
+  height: 430px;
+  border: 1px solid #eadfd3;
+  border-radius: 14px;
+  background: #fff;
+}
+.payment-meta {
+  margin-top: 14px;
+  color: #8e8e93;
+  font-size: 12px;
+  text-align: center;
+  word-break: break-all;
+}
+.payment-meta p {
+  margin: 4px 0;
+}
+.save-tip {
+  color: #3d352e;
+  font-size: 13px;
+  font-weight: 700;
+}
+.gateway-note {
+  color: #8e6a4b;
+}
+.dialog-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 16px;
+}
+.check-btn {
+  background: #f2ede7;
+  color: #3d352e;
+}
 @media (max-width: 760px) {
   .ready-page {
     padding: 16px;
@@ -479,6 +761,15 @@ h1 {
   }
   .action-card {
     padding: 20px;
+  }
+  .payment-dialog {
+    padding: 20px;
+  }
+  .payment-frame {
+    height: 360px;
+  }
+  .dialog-actions {
+    grid-template-columns: 1fr;
   }
 }
 </style>

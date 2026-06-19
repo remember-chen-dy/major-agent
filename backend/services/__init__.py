@@ -1,6 +1,4 @@
-"""业务服务模块"""
-from services.assessment_service import AssessmentService
-from services.report_service import ReportService
-from services.storage import StorageService
+"""业务服务模块。
 
-__all__ = ["AssessmentService", "ReportService", "StorageService"]
+具体服务请从对应模块导入，避免包初始化时加载完整工作流依赖。
+"""
