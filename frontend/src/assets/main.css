@@ -10,14 +10,14 @@
   }
 
   body {
-    background-color: #fdfcfa;
-    color: #292524;
+    background-color: #fafbff;
+    color: #1e293b;
     font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI', 'Roboto', sans-serif;
   }
 
-  /* 渐变文字工具类 - 金棕渐变 */
+  /* 渐变文字工具类 - 深蓝专业渐变 */
   .gradient-text {
-    background: linear-gradient(135deg, #c9a84c 0%, #8c7347 50%, #c9a84c 100%);
+    background: linear-gradient(135deg, #1a56db 0%, #3b82f6 50%, #1a56db 100%);
     -webkit-background-clip: text;
     background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -38,8 +38,8 @@
 
   /* 选中文字样式 */
   ::selection {
-    background-color: #ede6da;
-    color: #6b6054;
+    background-color: #dbeafe;
+    color: #1e40af;
   }
 }
 
@@ -50,17 +50,18 @@
     -webkit-backdrop-filter: blur(20px) saturate(180%);
   }
 
-  /* 暖色主题按钮 */
+  /* 专业蓝色主题按钮 */
   .btn-primary {
-    @apply relative overflow-hidden rounded-full px-10 py-4 font-medium text-white transition-all duration-300;
+    @apply relative overflow-hidden rounded-full px-10 py-4 font-semibold text-white transition-all duration-300;
     transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
-    background: linear-gradient(135deg, #b0a088 0%, #c5b89f 100%);
-    box-shadow: 0 4px 16px rgba(176, 160, 136, 0.2);
+    background: linear-gradient(135deg, #1a56db 0%, #3b82f6 100%);
+    box-shadow: 0 4px 16px rgba(26, 86, 219, 0.2);
+    letter-spacing: 0.01em;
   }
 
   .btn-primary:hover {
-    transform: scale(1.05) translateY(-2px);
-    box-shadow: 0 8px 32px rgba(176, 160, 136, 0.28);
+    transform: translateY(-2px);
+    box-shadow: 0 8px 28px rgba(26, 86, 219, 0.3);
   }
 
   .btn-primary:active {
@@ -70,14 +71,15 @@
   .btn-secondary {
     @apply rounded-full px-10 py-4 font-medium transition-all duration-300;
     transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
-    border-width: 2px;
-    border-color: #c5b89f;
-    color: #57534e;
+    border-width: 1.5px;
+    border-color: #cbd5e1;
+    color: #334155;
   }
 
   .btn-secondary:hover {
-    border-color: #d4c8b4;
-    background-color: #faf7f2;
+    border-color: #93c5fd;
+    background-color: #eff6ff;
+    color: #1a56db;
   }
 
   .btn-secondary:active {
@@ -91,8 +93,8 @@
   }
 
   .card-hover:hover {
-    transform: translateY(-4px);
-    box-shadow: 0 8px 32px rgba(140, 115, 71, 0.12);
+    transform: translateY(-6px);
+    box-shadow: 0 12px 40px rgba(15, 23, 42, 0.08);
   }
 
   /* 滚动动画入场效果 */
@@ -101,16 +103,18 @@
     transform: translateY(30px);
   }
 
-  /* 渐变连接线 - 金棕 */
+  /* 渐变连接线 - 专业蓝 */
   .gradient-line {
-    background: linear-gradient(90deg, #c5b89f 0%, #b0a088 50%, #c5b89f 100%);
-    height: 1px;
+    background: linear-gradient(90deg, #93c5fd 0%, #3b82f6 50%, #93c5fd 100%);
+    height: 2px;
+    opacity: 0.5;
   }
 
   /* 移动端垂直渐变线 */
   .gradient-line-vertical {
-    background: linear-gradient(180deg, #c5b89f 0%, #b0a088 50%, #c5b89f 100%);
-    width: 1px;
+    background: linear-gradient(180deg, #93c5fd 0%, #3b82f6 50%, #93c5fd 100%);
+    width: 2px;
+    opacity: 0.5;
   }
 
   /* 星空渐变线 */
@@ -123,30 +127,29 @@
   .navbar {
     @apply fixed top-0 left-0 right-0 z-50 h-16 transition-all duration-300;
     transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
-    background: rgba(253, 252, 250, 0.75);
+    background: rgba(255, 255, 255, 0.7);
     backdrop-filter: blur(20px) saturate(180%);
     -webkit-backdrop-filter: blur(20px) saturate(180%);
-    border-bottom: 1px solid rgba(176, 160, 136, 0.08);
+    border-bottom: 1px solid rgba(15, 23, 42, 0.05);
   }
 
   .navbar.scrolled {
-    background: rgba(253, 252, 250, 0.92);
-    box-shadow: 0 1px 12px rgba(176, 160, 136, 0.08);
+    background: rgba(255, 255, 255, 0.92);
+    box-shadow: 0 1px 12px rgba(15, 23, 42, 0.06);
   }
 
   /* iPhone 模型卡片 */
   .iphone-mockup {
     @apply relative mx-auto overflow-hidden rounded-[40px] bg-white;
-    border-width: 8px;
-    border-color: #ede6da;
+    border: 8px solid #e2e8f0;
     max-width: 380px;
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08), 0 16px 64px rgba(0, 0, 0, 0.06);
+    box-shadow: 0 8px 32px rgba(15, 23, 42, 0.08), 0 24px 80px rgba(15, 23, 42, 0.06);
   }
 
   .iphone-mockup::before {
     content: '';
     @apply absolute left-1/2 top-0 z-10 h-6 w-32 -translate-x-1/2 rounded-b-2xl;
-    background-color: #ede6da;
+    background-color: #e2e8f0;
   }
 
   /* 测评页面容器 */
@@ -157,17 +160,17 @@
   /* 对话消息气泡 */
   .message-ai {
     @apply rounded-3xl rounded-tl-md px-6 py-4 text-sm leading-relaxed;
-    color: #44403c;
-    background: linear-gradient(135deg, rgba(250, 247, 242, 0.9) 0%, rgba(237, 230, 218, 0.7) 100%);
+    color: #334155;
+    background: linear-gradient(135deg, rgba(248, 250, 252, 0.9) 0%, rgba(241, 245, 249, 0.7) 100%);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    box-shadow: 0 2px 8px rgba(176, 160, 136, 0.06);
+    box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
   }
 
   .message-user {
     @apply rounded-3xl rounded-tr-md px-6 py-4 text-sm leading-relaxed text-white;
-    background: linear-gradient(135deg, #b0a088 0%, #c5b89f 100%);
-    box-shadow: 0 4px 12px rgba(176, 160, 136, 0.2);
+    background: linear-gradient(135deg, #1a56db 0%, #3b82f6 100%);
+    box-shadow: 0 4px 12px rgba(26, 86, 219, 0.2);
   }
 
   /* 星空背景卡片 */
@@ -185,17 +188,17 @@
   .warm-card {
     @apply overflow-hidden;
     border-radius: 20px;
-    background: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.8);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(176, 160, 136, 0.08);
-    box-shadow: 0 4px 24px rgba(176, 160, 136, 0.06);
+    border: 1px solid rgba(15, 23, 42, 0.05);
+    box-shadow: 0 4px 24px rgba(15, 23, 42, 0.04);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   }
 
   .warm-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 32px rgba(176, 160, 136, 0.1);
+    transform: translateY(-3px);
+    box-shadow: 0 8px 32px rgba(15, 23, 42, 0.08);
   }
 
   /* 输入框样式 */

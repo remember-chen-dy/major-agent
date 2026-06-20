@@ -217,29 +217,43 @@ const isInputValid = computed(() => {
 
 const animateCardExit = (card: HTMLElement): Promise<void> => {
   return new Promise((resolve) => {
-    gsap.to(card, { scale: 0.95, opacity: 0, duration: 0.25, ease: 'power2.out', onComplete: resolve });
+    gsap.to(card, {
+      y: -8,
+      opacity: 0,
+      scale: 0.97,
+      duration: 0.22,
+      ease: 'power3.inOut',
+      onComplete: resolve,
+    });
   });
 };
 
 const animateCardEnter = (card: HTMLElement): Promise<void> => {
   return new Promise((resolve) => {
-    gsap.fromTo(card, { y: 30, opacity: 0 }, { y: 0, opacity: 1, duration: 0.35, ease: 'power2.out', onComplete: resolve });
+    gsap.fromTo(card,
+      { y: 16, opacity: 0, scale: 0.985 },
+      { y: 0, opacity: 1, scale: 1, duration: 0.32, ease: 'power3.out', onComplete: resolve }
+    );
   });
 };
 
 const animateTagSelect = (tag: HTMLElement) => {
-  const tl = gsap.timeline();
-  tl.to(tag, { scale: 0.9, duration: 0.1 })
-    .to(tag, { scale: 1.05, duration: 0.15, ease: 'back.out(2)' })
-    .to(tag, { scale: 1, duration: 0.1 });
+  gsap.fromTo(tag,
+    { scale: 1 },
+    { scale: 0.93, duration: 0.08, ease: 'power2.in', yoyo: true, repeat: 1 }
+  );
 };
 
-/** 平滑滚动到页面底部（弹性效果） */
+/** 平滑滚动到页面底部 */
 const scrollToBottom = async () => {
   await nextTick();
   const el = mainRef.value;
   if (el) {
-    gsap.to(el, { scrollTo: { y: el.scrollHeight, autoKill: false }, duration: 0.45, ease: 'power2.out' });
+    gsap.to(el, {
+      scrollTo: { y: el.scrollHeight, autoKill: false },
+      duration: 0.35,
+      ease: 'power3.out',
+    });
   }
 };
 
@@ -406,13 +420,16 @@ const submitInput = async () => {
   // 触感反馈
   hapticFeedback('light');
 
-  // 退场动画
+  // 退场动画（不等待完成，和后续操作并行）
   const currentCard = document.querySelector('.interaction-card');
-  if (currentCard) await animateCardExit(currentCard as HTMLElement);
+  const exitPromise = currentCard ? animateCardExit(currentCard as HTMLElement) : Promise.resolve();
 
   // 添加用户消息
   const userMsg: ChatMessage = { role: 'user', content: formatUserInput(answer, interaction), user_input: answer };
   session.messages.push(userMsg);
+
+  // 等退场动画完成后显示 typing，让过渡更自然
+  await exitPromise;
   isTyping.value = true;
 
   // 自动滚动到底部
@@ -447,6 +464,8 @@ const submitInput = async () => {
     }
 
     if (!data.is_generating && !data.is_complete) {
+      // 先隐藏 typing，再显示新卡片，避免视觉闪烁
+      isTyping.value = false;
       resetFormState();
       await nextTick();
       const newCard = document.querySelector('.interaction-card');
@@ -454,6 +473,7 @@ const submitInput = async () => {
         await animateCardEnter(newCard as HTMLElement);
         await scrollToBottom();
       }
+      return; // 已经设置过 isTyping，跳过 finally
     }
   } catch (e) {
     stopLoadingSteps();
@@ -546,11 +566,13 @@ const sendTextMessage = async () => {
       applyReportState(sid, data);
       router.push(`/report/${sid}/loading`);
     } else if (data.messages && Array.isArray(data.messages)) {
+      isTyping.value = false;
       for (const msg of data.messages) {
         session.messages.push({ role: msg.role || 'ai', content: msg.content || '', interaction: msg.interaction || null });
       }
       resetFormState();
       await scrollToBottom();
+      return;
     }
   } catch {
     session.messages.push({ role: 'ai', content: '抱歉，网络出现了问题，请稍后重试。' });
@@ -1016,9 +1038,10 @@ onUnmounted(() => {
   display: flex; align-items: center; justify-content: center;
   color: var(--coze-blue);
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background 0.2s ease, transform 0.15s ease;
 }
-.coze-nav-btn:active { background: rgba(0, 0, 0, 0.05); }
+.coze-nav-btn:hover { background: rgba(0, 0, 0, 0.04); }
+.coze-nav-btn:active { background: rgba(0, 0, 0, 0.06); transform: scale(0.92); }
 .coze-nav-spacer {
   width: 34px;
   height: 34px;
@@ -1126,14 +1149,14 @@ onUnmounted(() => {
   align-items: flex-end;
   gap: 8px;
   margin-bottom: 12px;
-  animation: cozeFadeIn 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  animation: cozeMsgAppear 0.35s cubic-bezier(0.16, 1, 0.3, 1) both;
 }
 .coze-msg-user { justify-content: flex-end; }
 .coze-msg-ai { justify-content: flex-start; }
 
-@keyframes cozeFadeIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+@keyframes cozeMsgAppear {
+  from { opacity: 0; transform: translateY(10px) scale(0.98); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
 }
 
 /* --- 头像 --- */
@@ -1162,23 +1185,31 @@ onUnmounted(() => {
   background: var(--coze-blue);
   color: white;
   border-radius: 16px 16px 4px 16px;
-  box-shadow: var(--coze-card-shadow);
+  box-shadow: 0 2px 10px rgba(0, 122, 255, 0.15);
 }
 .coze-bubble-ai {
   background: var(--coze-bubble-ai);
   color: var(--coze-text);
   border-radius: 16px;
-  box-shadow: var(--coze-card-shadow);
+  box-shadow: 0 1px 6px rgba(0, 0, 0, 0.05);
   max-width: 100%;
+  transition: box-shadow 0.2s ease;
 }
 
 /* --- 输入中动画 --- */
-.coze-typing { padding: 12px 16px; }
+.coze-typing {
+  padding: 12px 16px;
+  animation: typingFadeIn 0.25s ease-out both;
+}
+@keyframes typingFadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 .coze-dot {
   width: 6px; height: 6px;
   border-radius: 50%;
   background: var(--coze-text-secondary);
-  animation: cozeBounce 1.2s infinite;
+  animation: cozeBounce 1.4s ease-in-out infinite;
 }
 @keyframes cozeBounce {
   0%, 60%, 100% { transform: translateY(0); opacity: 0.3; }
@@ -1230,11 +1261,11 @@ onUnmounted(() => {
   background: rgba(0, 0, 0, 0.03);
   color: var(--coze-text);
   outline: none;
-  transition: background 0.2s, box-shadow 0.2s;
+  transition: background 0.25s ease, box-shadow 0.25s ease;
 }
 .coze-input:focus {
   background: white;
-  box-shadow: 0 0 0 2px rgba(0, 122, 255, 0.15);
+  box-shadow: 0 0 0 2.5px rgba(0, 122, 255, 0.18);
 }
 .coze-input::placeholder { color: var(--coze-text-secondary); }
 
@@ -1254,11 +1285,14 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  transition: background 0.15s, transform 0.1s;
+  transition: background 0.2s ease, transform 0.15s cubic-bezier(0.25, 0.46, 0.45, 0.94), box-shadow 0.2s ease;
+  will-change: transform;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.2);
 }
-.coze-action-btn:active:not(:disabled) { transform: scale(0.98); background: var(--coze-blue-hover); }
-.coze-action-btn:disabled { opacity: 0.4; cursor: not-allowed; }
-.coze-action-btn-disabled { opacity: 0.4; cursor: not-allowed; }
+.coze-action-btn:hover:not(:disabled) { background: var(--coze-blue-hover); box-shadow: 0 4px 12px rgba(0, 122, 255, 0.3); }
+.coze-action-btn:active:not(:disabled) { transform: scale(0.97); background: var(--coze-blue-hover); }
+.coze-action-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+.coze-action-btn-disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
 
 .coze-action-btn-sm {
   padding: 8px 14px;
@@ -1305,13 +1339,17 @@ onUnmounted(() => {
   background: rgba(0, 0, 0, 0.03);
   color: var(--coze-text);
   cursor: pointer;
-  transition: all 0.12s;
+  transition: background 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
+  will-change: transform;
 }
-.coze-option-btn:active { background: rgba(0, 0, 0, 0.06); }
+.coze-option-btn:hover { background: rgba(0, 0, 0, 0.055); }
+.coze-option-btn:active { transform: scale(0.98); background: rgba(0, 0, 0, 0.07); }
 .coze-option-btn-active {
   background: var(--coze-blue);
   color: white;
+  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25);
 }
+.coze-option-btn-active:hover { background: var(--coze-blue-hover); }
 
 /* --- 下拉选择 --- */
 .coze-select-btn {
@@ -1328,9 +1366,10 @@ onUnmounted(() => {
   align-items: center;
   justify-content: space-between;
   color: var(--coze-text);
-  transition: background 0.12s;
+  transition: background 0.18s ease, box-shadow 0.18s ease;
 }
-.coze-select-btn:active { background: rgba(0, 0, 0, 0.06); }
+.coze-select-btn:hover { background: rgba(0, 0, 0, 0.05); }
+.coze-select-btn:active { background: rgba(0, 0, 0, 0.07); }
 .coze-select-dropdown {
   position: absolute;
   top: 100%;
@@ -1341,6 +1380,12 @@ onUnmounted(() => {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.1);
   overflow: hidden;
   z-index: 10;
+  animation: dropdownAppear 0.2s cubic-bezier(0.16, 1, 0.3, 1) both;
+  transform-origin: top center;
+}
+@keyframes dropdownAppear {
+  from { opacity: 0; transform: translateY(-4px) scaleY(0.95); }
+  to { opacity: 1; transform: translateY(0) scaleY(1); }
 }
 .coze-select-option {
   width: 100%;
@@ -1369,14 +1414,18 @@ onUnmounted(() => {
   background: white;
   color: var(--coze-text);
   cursor: pointer;
-  transition: all 0.12s;
+  transition: background 0.18s ease, border-color 0.18s ease, transform 0.12s ease, box-shadow 0.18s ease;
+  will-change: transform;
 }
-.coze-tag-btn:active { background: rgba(0, 0, 0, 0.03); }
+.coze-tag-btn:hover { border-color: rgba(0, 122, 255, 0.3); background: rgba(0, 122, 255, 0.03); }
+.coze-tag-btn:active { transform: scale(0.95); }
 .coze-tag-btn-active {
   background: var(--coze-blue);
   color: white;
   border-color: var(--coze-blue);
+  box-shadow: 0 2px 6px rgba(0, 122, 255, 0.2);
 }
+.coze-tag-btn-active:hover { background: var(--coze-blue-hover); border-color: var(--coze-blue-hover); }
 .coze-tag-selected {
   display: inline-flex;
   align-items: center;
@@ -1422,10 +1471,15 @@ onUnmounted(() => {
   border: none;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.12);
   cursor: pointer;
-  transition: box-shadow 0.15s;
+  transition: box-shadow 0.2s ease, transform 0.15s ease;
+}
+.coze-slider::-webkit-slider-thumb:hover {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  transform: scale(1.05);
 }
 .coze-slider::-webkit-slider-thumb:active {
-  box-shadow: 0 2px 8px rgba(0, 122, 255, 0.25), 0 0 0 3px rgba(0, 122, 255, 0.12);
+  box-shadow: 0 2px 10px rgba(0, 122, 255, 0.3), 0 0 0 4px rgba(0, 122, 255, 0.1);
+  transform: scale(1.08);
 }
 .coze-slider::-moz-range-thumb {
   width: 28px; height: 28px;
@@ -1447,6 +1501,7 @@ onUnmounted(() => {
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   pointer-events: none;
   transform: translateX(-50%);
+  transition: left 0.08s ease-out;
 }
 
 /* --- 芯片按钮（报告头部） --- */
@@ -1483,10 +1538,15 @@ onUnmounted(() => {
   position: fixed;
   inset: 0;
   z-index: 100;
-  background: rgba(0, 0, 0, 0.4);
+  background: rgba(0, 0, 0, 0.35);
   display: flex;
   align-items: flex-end;
   justify-content: center;
+  animation: overlayFadeIn 0.2s ease-out;
+}
+@keyframes overlayFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 .library-panel {
   width: 100%;
@@ -1497,7 +1557,7 @@ onUnmounted(() => {
   box-shadow: 0 -4px 24px rgba(0, 0, 0, 0.1);
   display: flex;
   flex-direction: column;
-  animation: slideUp 0.25s ease-out;
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
 @keyframes slideUp {
   from { transform: translateY(100%); }
@@ -1578,10 +1638,19 @@ onUnmounted(() => {
   font-size: 14px;
 }
 
+/* --- 交互卡片 --- */
+.interaction-card {
+  will-change: transform, opacity;
+}
+
 /* --- 减少动画偏好 --- */
 @media (prefers-reduced-motion: reduce) {
   .coze-msg-row { animation: none; }
   .coze-dot { animation: none; opacity: 0.5; }
-  * { transition-duration: 0.01ms !important; }
+  .coze-typing { animation: none; }
+  .coze-select-dropdown { animation: none; }
+  .library-overlay { animation: none; }
+  .library-panel { animation: none; }
+  * { transition-duration: 0.01ms !important; animation-duration: 0.01ms !important; }
 }
 </style>
