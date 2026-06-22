@@ -220,6 +220,11 @@ const goHome = () => {
   router.push({ path: '/', query: { landing: '1' } });
 };
 
+// 临时测试入口：绕过支付直接查看报告
+const skipPaymentForTest = () => {
+  router.push(`/report/${sessionId.value}?test=1`);
+};
+
 const goReportLibrary = () => {
   router.push('/assessment?reportLibrary=1');
 };
@@ -292,7 +297,7 @@ onBeforeUnmount(() => {
           </div>
 
           <div class="price-row">
-            <span class="original-price">¥29.9</span>
+            <span class="original-price">¥14.9</span>
             <span class="price">¥3.00</span>
           </div>
           <div class="price-hint" >支付宝扫码支付 · 一次性解锁，永久查看</div>
@@ -307,6 +312,10 @@ onBeforeUnmount(() => {
             <span class="divider">·</span>
             <button class="text-link" @click="goHome">返回首页</button>
           </div>
+
+          <!-- <button class="test-btn" @click="skipPaymentForTest">
+            [测试] 跳过支付直接看报告
+          </button> -->
         </aside>
       </div>
     </section>
@@ -581,6 +590,23 @@ h1 {
   margin-top: 10px;
   background: #f2ede7;
   color: #3d352e;
+}
+.test-btn {
+  width: 100%;
+  margin-top: 12px;
+  border: 1px dashed #c9a84c;
+  border-radius: 10px;
+  padding: 10px 14px;
+  background: rgba(201, 168, 76, 0.08);
+  color: #8a6d2e;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.test-btn:hover {
+  background: rgba(201, 168, 76, 0.16);
+  color: #6b521e;
 }
 .secondary-actions {
   display: flex;

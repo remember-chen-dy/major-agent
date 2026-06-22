@@ -742,9 +742,9 @@ onMounted(async () => {
         }
 
         if (data.is_failed) {
-          // 报告失败时只重置状态，不自动创建新会话（避免重复调用 POST /api/sessions）
-          sessionStore.clearCurrentSession();
-          showToast('报告生成失败，请重新测评');
+          // 报告失败时自动重新开始测评
+          await sessionStore.restartAssessment(currentSessionId.value);
+          showToast('报告生成失败，已为你重新开始测评');
           return;
         }
 

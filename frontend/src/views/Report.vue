@@ -11,6 +11,7 @@ const authStore = useAuthStore();
 const sessionStore = useSessionStore();
 
 const sessionId = computed(() => route.params.sessionId as string);
+const isTestMode = computed(() => route.query.test === '1');
 const loading = ref(true);
 const error = ref('');
 const report = ref<any>(null);
