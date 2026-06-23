@@ -27,7 +27,7 @@ class Settings(PydanticBaseSettings):
     OPENAI_API_KEY: str = Field(default="",description="OpenAI API 密钥")
     OPENAI_BASE_URL: str = Field(default="",description="OpenAI API 基础 URL")
     LLM_MODEL: str = Field(default="gpt-4o",description="LLM 模型")
-
+    
     # CORS 配置
     CORS_ORIGINS: list[str] = Field(default=["*"],description="CORS 允许的前端地址")
 

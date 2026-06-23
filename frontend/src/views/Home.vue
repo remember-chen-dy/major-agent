@@ -849,6 +849,9 @@ const showTestimonial = (index: number) => {
             <p class="text-sm text-slate-400">
               &copy; {{ new Date().getFullYear() }} 智志愿 · AI 志愿规划平台
             </p>
+            <a href="https://beian.miit.gov.cn/" target="_blank" rel="noopener noreferrer" class="text-sm text-slate-400 transition-colors duration-200 hover:text-slate-600">
+              陕ICP备2026015941号-1
+            </a>
             <div class="flex items-center gap-6">
               <a href="#privacy" class="text-sm text-slate-400 transition-colors duration-200 hover:text-slate-600">
                 隐私政策

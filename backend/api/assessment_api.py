@@ -99,7 +99,11 @@ async def send_message(
     - 测评阶段：返回下一个问题的 messages + interaction 配置
     - 报告阶段：返回 Markdown 报告
     """
-    result = await AssessmentService.chat(db=db, session_id=session_id, answer=request.answer)
+    try:
+        result = await AssessmentService.chat(db=db, session_id=session_id, answer=request.answer)
+    except Exception as e:
+        # logger.error(f"发送消息失败: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
     if result.get("error"):
         status = result.get("status")
