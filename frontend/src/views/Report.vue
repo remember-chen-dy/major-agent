@@ -12,6 +12,7 @@ const sessionStore = useSessionStore();
 
 const sessionId = computed(() => route.params.sessionId as string);
 const isTestMode = computed(() => route.query.test === '1');
+const isFreeView = computed(() => route.query.free === '1');
 const loading = ref(true);
 const error = ref('');
 const report = ref<any>(null);
@@ -71,8 +72,8 @@ const loadReport = async () => {
       }
     }
 
-    // 未支付则跳转到解锁页
-    if (!reportData.is_paid) {
+    // 未支付则跳转到解锁页（扫码进群免费查看除外）
+    if (!reportData.is_paid && !isFreeView.value) {
       router.replace(`/report/${sessionId.value}/unlock`);
       return;
     }

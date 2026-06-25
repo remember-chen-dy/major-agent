@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { useAuthStore } from '../stores/auth';
 import { useSessionStore } from '../stores/session';
+import groupQrSrc from '../assets/serset.png';
 
 const route = useRoute();
 const router = useRouter();
@@ -20,6 +21,13 @@ const paymentOrder = ref<any>(null);
 const paymentStatus = ref<'idle' | 'creating' | 'waiting' | 'success' | 'error'>('idle');
 const paymentError = ref('');
 let pollTimer: number | null = null;
+
+// 扫码进群免费查看
+const groupModalOpen = ref(false);
+const groupPassword = ref('');
+const groupPasswordError = ref('');
+const GROUP_PASSWORD = '8888';
+const GROUP_QR_SRC = groupQrSrc;
 
 const valueItems = [
   '成绩定位与院校层次分析',
@@ -242,6 +250,29 @@ const restartAssessment = async () => {
   }
 };
 
+// 打开扫码进群弹窗
+const openGroupModal = () => {
+  groupModalOpen.value = true;
+  groupPassword.value = '';
+  groupPasswordError.value = '';
+};
+
+// 关闭扫码进群弹窗
+const closeGroupModal = () => {
+  groupModalOpen.value = false;
+};
+
+// 提交群密码，验证通过后免费查看报告
+const handleGroupPasswordSubmit = () => {
+  const input = groupPassword.value.trim();
+  if (input !== GROUP_PASSWORD) {
+    groupPasswordError.value = '密码错误，请重新输入';
+    return;
+  }
+  closeGroupModal();
+  router.push(`/report/${sessionId.value}?free=1`);
+};
+
 onMounted(async () => {
   window.addEventListener('message', handlePaymentMessage);
   await loadReport();
@@ -307,6 +338,11 @@ onBeforeUnmount(() => {
             <span v-if="paying">正在等待支付宝支付...</span>
             <span v-else>支付宝支付解锁完整报告</span>
           </button>
+          <button class="ghost-btn group-entry-btn" @click="openGroupModal">
+            <span class="group-icon">📱</span>
+            扫码进群免费查看报告
+          </button>
+          <p class="group-hint">加入微信群并输入群密码，即可免费解锁完整报告</p>
           <div class="secondary-actions">
             <button class="text-link" @click="restartAssessment">重新测评</button>
             <span class="divider">·</span>
@@ -356,6 +392,41 @@ onBeforeUnmount(() => {
           <div class="dialog-actions">
             <button type="button" class="open-pay-btn" @click="openPaymentInNewWindow">打开支付宝收银台</button>
             <button type="button" class="check-btn" @click="checkPaymentStatus">我已完成支付</button>
+          </div>
+        </div>
+      </section>
+    </div>
+
+    <!-- 扫码进群免费查看弹窗 -->
+    <div v-if="groupModalOpen" class="payment-overlay group-overlay" @click.self="closeGroupModal">
+      <section class="payment-dialog group-dialog" role="dialog" aria-modal="true" aria-labelledby="group-title">
+        <button class="dialog-close" type="button" aria-label="关闭进群弹窗" @click="closeGroupModal">×</button>
+        <div class="payment-head">
+          <span class="group-badge">免费解锁</span>
+          <h2 id="group-title">扫码进群查看报告</h2>
+          <p>扫描二维码加入微信群，进群后输入群密码即可免费查看完整报告。</p>
+        </div>
+
+        <div class="group-body">
+          <div class="qr-box group-qr">
+            <img :src="GROUP_QR_SRC" alt="微信群二维码" />
+          </div>
+          <p class="qr-save-tip">长按二维码保存图片</p>
+          <p class="qr-tip">微信扫码进群，获取完整密码</p>
+
+          <div class="password-form">
+            <label for="group-password">请输入群密码</label>
+            <input
+              id="group-password"
+              v-model="groupPassword"
+              type="text"
+              inputmode="numeric"
+              maxlength="4"
+              placeholder="4 位数字密码"
+              @keyup.enter="handleGroupPasswordSubmit"
+            />
+            <p v-if="groupPasswordError" class="password-error">{{ groupPasswordError }}</p>
+            <button type="button" class="pay-btn" @click="handleGroupPasswordSubmit">立即查看报告</button>
           </div>
         </div>
       </section>
@@ -794,6 +865,85 @@ h1 {
   background: #f2ede7;
   color: #3d352e;
 }
+.group-entry-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 10px;
+}
+.group-icon {
+  font-size: 18px;
+}
+.group-hint {
+  margin-top: 10px;
+  font-size: 12px;
+  color: #8e6a4b;
+  line-height: 1.5;
+}
+.group-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 72px;
+  height: 28px;
+  border-radius: 999px;
+  background: #e6f4ea;
+  color: #1e8e3e;
+  font-size: 13px;
+  font-weight: 900;
+}
+.group-body {
+  padding: 4px 0 8px;
+}
+.group-qr {
+  margin-bottom: 12px;
+}
+.qr-tip {
+  text-align: center;
+  font-size: 13px;
+  color: #3d352e;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.qr-save-tip {
+  text-align: center;
+  font-size: 12px;
+  color: #666;
+  margin-bottom: 18px;
+}
+.password-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.password-form label {
+  font-size: 14px;
+  font-weight: 700;
+  color: #1f2328;
+}
+.password-form input {
+  width: 100%;
+  border: 1px solid #eadfd3;
+  border-radius: 12px;
+  padding: 12px 14px;
+  font-size: 16px;
+  text-align: center;
+  letter-spacing: 0.3em;
+  outline: none;
+  transition: all 0.2s ease;
+}
+.password-form input:focus {
+  border-color: #1f6feb;
+  box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.12);
+}
+.password-error {
+  margin: 0;
+  color: #b42318;
+  font-size: 13px;
+  text-align: center;
+}
+
 @media (max-width: 760px) {
   .ready-page {
     padding: 16px;
