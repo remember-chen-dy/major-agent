@@ -94,8 +94,8 @@ export default {
         },
       },
       animation: {
-        'fade-in-up': 'fadeInUp 0.6s ease-out forwards',
-        'fade-in': 'fadeIn 0.5s ease-out forwards',
+        'fade-in-up': 'fadeInUp 0.35s ease-out forwards',
+        'fade-in': 'fadeIn 0.3s ease-out forwards',
         'slide-down': 'slideDown 0.3s ease-out forwards',
         'float': 'float 3s ease-in-out infinite',
         'shimmer': 'shimmer 3s ease-in-out infinite',

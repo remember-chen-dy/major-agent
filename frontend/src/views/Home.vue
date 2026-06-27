@@ -32,28 +32,72 @@ interface Testimonial {
   quote: string;
   name: string;
   title: string;
+  score: number;
 }
 
 const testimonials = ref<Testimonial[]>([
   {
-    quote: '这个测评真的帮了我大忙！原本对选专业毫无头绪，通过AI对话，我找到了真正适合自己的方向。',
-    name: '张同学',
-    title: '2025届考生，清华大学',
+    quote: '孩子成绩中上但不知道选什么专业，做了这个测评后发现她适合心理学方向。报告里还列出了开设这个专业的院校梯度，非常实用，志愿填报那几天全靠它了。',
+    name: '陈女士',
+    title: '考生家长 · 女儿考入华东师范大学',
+    score: 5,
   },
   {
-    quote: '报告非常详细，不仅推荐了专业，还给出了未来职业规划建议，让我更有信心面对高考志愿。',
-    name: '李同学',
-    title: '2025届考生，北京大学',
+    quote: '说实话一开始没抱太大期望，结果AI问了我十几分钟的问题，比我班主任了解我还准。推荐了数据科学这个方向，我之前完全没想过，现在学了一学期真的很喜欢。',
+    name: '赵同学',
+    title: '2025届考生 · 就读于电子科技大学',
+    score: 5,
   },
   {
-    quote: '作为一名家长，我帮孩子做了测评。AI的分析比我们查了很多资料还要专业，强烈推荐！',
-    name: '王女士',
-    title: '考生家长，上海交通大学',
+    quote: '我是复读生，去年随便选了个专业读了一年很痛苦。今年重新做了这个测评，报告里把我的性格、兴趣分析得很透彻，转到了真正适合我的专业，感谢！',
+    name: '刘同学',
+    title: '2025届考生 · 就读于武汉大学',
+    score: 5,
+  },
+  {
+    quote: '家里三代人都没上过大学，志愿填报完全两眼一抹黑。这个报告把每个推荐专业的就业方向、薪资水平都列清楚了，让我们这些普通家庭也能做出理性选择。',
+    name: '周先生',
+    title: '考生家长 · 儿子考入西安交通大学',
+    score: 5,
+  },
+  {
+    quote: '我理科成绩不错但偏科严重，AI分析后建议我走工科而不是纯理科，还给出了具体的专业排序。最后按建议填报的，六个志愿全部命中第一专业，省了好多纠结。',
+    name: '孙同学',
+    title: '2025届考生 · 就读于哈尔滨工业大学',
+    score: 4,
   },
 ]);
 
 /** 当前激活的评价索引（移动端轮播） */
 const activeTestimonial = ref(0);
+
+/** 触摸滑动状态 */
+const touchStartX = ref(0);
+const touchDeltaX = ref(0);
+const isSwiping = ref(false);
+
+const onTouchStart = (e: TouchEvent) => {
+  touchStartX.value = e.touches[0].clientX;
+  touchDeltaX.value = 0;
+  isSwiping.value = true;
+};
+
+const onTouchMove = (e: TouchEvent) => {
+  if (!isSwiping.value) return;
+  touchDeltaX.value = e.touches[0].clientX - touchStartX.value;
+};
+
+const onTouchEnd = () => {
+  if (!isSwiping.value) return;
+  isSwiping.value = false;
+  const threshold = 50;
+  if (touchDeltaX.value < -threshold && activeTestimonial.value < testimonials.value.length - 1) {
+    activeTestimonial.value++;
+  } else if (touchDeltaX.value > threshold && activeTestimonial.value > 0) {
+    activeTestimonial.value--;
+  }
+  touchDeltaX.value = 0;
+};
 
 // ============================================================
 // 滚动监听 - 导航栏背景透明度变化
@@ -84,20 +128,20 @@ const loadLatestReport = async () => {
   try {
     const data = await api.getLatestReport(authStore.userId);
     latestReport.value = data.report || null;
+
+    // 未支付的报告直接跳转到支付页面，避免首页重复展示
+    if (latestReport.value && !latestReport.value.is_paid) {
+      const sessionId = latestReport.value.session_id;
+      if (sessionId) {
+        router.replace(`/report/${sessionId}/unlock`);
+        return;
+      }
+    }
   } catch (error) {
     console.error('加载最新报告失败:', error);
     reportError.value = '加载报告失败，请稍后重试';
   } finally {
     reportLoading.value = false;
-  }
-};
-
-const handlePayReport = async () => {
-  if (!latestReport.value) return;
-
-  const sessionId = latestReport.value.session_id;
-  if (sessionId) {
-    router.push(`/report/${sessionId}/unlock`);
   }
 };
 
@@ -218,15 +262,6 @@ function renderMarkdown(md: string): string {
   return html.join('');
 }
 
-const reportPreview = computed(() => {
-  if (!latestReport.value?.report_content) return '';
-  return latestReport.value.report_content
-    .split('\n')
-    .filter(Boolean)
-    .slice(0, 12)
-    .join('\n');
-});
-
 const reportHtml = computed(() => {
   if (!latestReport.value?.report_content) return '';
   return renderMarkdown(latestReport.value.report_content);
@@ -272,8 +307,8 @@ const initScrollAnimations = async () => {
     gsap.to(el as Element, {
       opacity: 1,
       y: 0,
-      duration: 0.6,
-      delay: index * 0.15,
+      duration: 0.35,
+      delay: index * 0.08,
       ease: 'power3.out',
       scrollTrigger: {
         trigger: el as Element,
@@ -287,8 +322,8 @@ const initScrollAnimations = async () => {
     gsap.from(el as Element, {
       opacity: 0,
       y: 40,
-      duration: 0.5,
-      delay: index * 0.2,
+      duration: 0.3,
+      delay: index * 0.1,
       ease: 'power2.out',
       scrollTrigger: {
         trigger: el as Element,
@@ -318,10 +353,6 @@ const closeMenu = () => {
   isMenuOpen.value = false;
 };
 
-/** 处理评价卡片切换（移动端轮播） */
-const showTestimonial = (index: number) => {
-  activeTestimonial.value = index;
-};
 </script>
 
 <template>
@@ -370,27 +401,6 @@ const showTestimonial = (index: number) => {
           </div>
         </section>
 
-        <section v-else class="paywall-shell">
-          <div class="paywall-card">
-            <div class="paywall-icon">🔒</div>
-            <h1>完整报告已生成</h1>
-            <p class="paywall-sub">支付 3 元即可查看完整志愿规划报告，包含成绩定位、专业建议、避坑提醒、城市策略和行动清单。</p>
-
-            <article class="preview-card">
-              <pre>{{ reportPreview || '报告内容已生成，支付后即可查看完整内容。' }}</pre>
-              <div class="fade"></div>
-            </article>
-
-            <div class="paywall-actions">
-              <button class="pay-btn" @click="handlePayReport">
-                <span class="price">¥3.00</span>
-                <span class="label">查看完整报告</span>
-              </button>
-              <button class="ghost-btn" @click="restartAssessment">重新测评</button>
-              <button class="ghost-btn" @click="goToReportLibrary">报告库</button>
-            </div>
-          </div>
-        </section>
       </main>
     </template>
 
@@ -512,7 +522,7 @@ const showTestimonial = (index: number) => {
         </div>
 
         <!-- iPhone模型 / 对话界面预览 -->
-        <div class="mt-16 animate-fade-in-up [animation-delay:0.3s] w-full max-w-md opacity-0 md:mt-20">
+        <div class="mt-16 animate-fade-in-up [animation-delay:0.15s] w-full max-w-md opacity-0 md:mt-20">
           <div class="iphone-mockup">
             <!-- 状态栏 -->
             <div class="flex items-center justify-between border-b border-slate-100 px-6 pt-10 pb-3">
@@ -736,14 +746,16 @@ const showTestimonial = (index: number) => {
           <!-- 桌面端网格布局 -->
           <div class="mt-14 hidden grid-cols-1 gap-5 md:grid md:grid-cols-3">
             <div
-              v-for="(item, index) in testimonials"
+              v-for="(item, index) in testimonials.slice(0, 3)"
               :key="index"
               class="animate-on-scroll card-hover rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-100"
             >
-              <!-- 引号装饰 -->
-              <svg class="mb-4 h-8 w-8 text-blue-200" fill="currentColor" viewBox="0 0 24 24">
-                <path d="M4.583 17.321C3.553 16.227 3 15 3 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 01-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179zm10 0C13.553 16.227 13 15 13 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 01-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179z"/>
-              </svg>
+              <!-- 星级 -->
+              <div class="mb-4 flex gap-0.5">
+                <svg v-for="s in 5" :key="s" class="h-4 w-4" :class="s <= item.score ? 'text-amber-400' : 'text-slate-200'" fill="currentColor" viewBox="0 0 20 20">
+                  <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                </svg>
+              </div>
               <p class="text-sm leading-relaxed text-slate-500">
                 {{ item.quote }}
               </p>
@@ -759,36 +771,53 @@ const showTestimonial = (index: number) => {
             </div>
           </div>
 
-          <!-- 移动端轮播布局 -->
-          <div class="mt-8 md:hidden">
-            <div class="overflow-hidden rounded-2xl bg-white p-8 shadow-sm ring-1 ring-slate-100">
-              <transition-group name="fade" mode="out-in">
-                <div :key="activeTestimonial">
-                  <svg class="mb-4 h-7 w-7 text-blue-200" fill="currentColor" viewBox="0 0 24 24">
-                    <path d="M4.583 17.321C3.553 16.227 3 15 3 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 01-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179zm10 0C13.553 16.227 13 15 13 13.011c0-3.5 2.457-6.637 6.03-8.188l.893 1.378c-3.335 1.804-3.987 4.145-4.247 5.621.537-.278 1.24-.375 1.929-.311 1.804.167 3.226 1.648 3.226 3.489a3.5 3.5 0 01-3.5 3.5c-1.073 0-2.099-.49-2.748-1.179z"/>
-                  </svg>
+          <!-- 移动端轮播布局（支持手指滑动） -->
+          <div
+            class="mt-8 md:hidden"
+            @touchstart.passive="onTouchStart"
+            @touchmove.passive="onTouchMove"
+            @touchend="onTouchEnd"
+          >
+            <div class="overflow-hidden rounded-2xl">
+              <div
+                class="flex transition-transform duration-300 ease-out"
+                :style="{ transform: `translateX(calc(-${activeTestimonial * 100}% + ${isSwiping ? touchDeltaX : 0}px))` }"
+              >
+                <div
+                  v-for="(item, index) in testimonials"
+                  :key="index"
+                  class="w-full shrink-0 bg-white p-7 shadow-sm ring-1 ring-slate-100"
+                  :class="index === 0 ? 'rounded-l-2xl' : index === testimonials.length - 1 ? 'rounded-r-2xl' : ''"
+                >
+                  <!-- 星级 -->
+                  <div class="mb-3 flex gap-0.5">
+                    <svg v-for="s in 5" :key="s" class="h-4 w-4" :class="s <= item.score ? 'text-amber-400' : 'text-slate-200'" fill="currentColor" viewBox="0 0 20 20">
+                      <path d="M9.049 2.927c.3-.921 1.603-.921 1.902 0l1.07 3.292a1 1 0 00.95.69h3.462c.969 0 1.371 1.24.588 1.81l-2.8 2.034a1 1 0 00-.364 1.118l1.07 3.292c.3.921-.755 1.688-1.54 1.118l-2.8-2.034a1 1 0 00-1.175 0l-2.8 2.034c-.784.57-1.838-.197-1.539-1.118l1.07-3.292a1 1 0 00-.364-1.118L2.98 8.72c-.783-.57-.38-1.81.588-1.81h3.461a1 1 0 00.951-.69l1.07-3.292z"/>
+                    </svg>
+                  </div>
                   <p class="text-sm leading-relaxed text-slate-500">
-                    {{ testimonials[activeTestimonial].quote }}
+                    {{ item.quote }}
                   </p>
-                  <div class="mt-6 flex items-center gap-3 border-t border-slate-50 pt-4">
+                  <div class="mt-5 flex items-center gap-3 border-t border-slate-50 pt-4">
                     <div class="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-500 text-xs font-bold text-white">
-                      {{ testimonials[activeTestimonial].name.charAt(0) }}
+                      {{ item.name.charAt(0) }}
                     </div>
                     <div>
-                      <p class="text-sm font-semibold text-slate-700">{{ testimonials[activeTestimonial].name }}</p>
-                      <p class="mt-0.5 text-xs text-slate-400">{{ testimonials[activeTestimonial].title }}</p>
+                      <p class="text-sm font-semibold text-slate-700">{{ item.name }}</p>
+                      <p class="mt-0.5 text-xs text-slate-400">{{ item.title }}</p>
                     </div>
                   </div>
                 </div>
-              </transition-group>
+              </div>
             </div>
-            <div class="mt-6 flex justify-center gap-2">
+            <!-- 指示器 -->
+            <div class="mt-5 flex items-center justify-center gap-2">
               <button
                 v-for="(_, index) in testimonials"
                 :key="index"
-                class="h-2 w-8 rounded-full transition-all duration-300"
-                :class="activeTestimonial === index ? 'bg-gradient-to-r from-blue-500 to-indigo-500' : 'bg-slate-200'"
-                @click="showTestimonial(index)"
+                class="h-1.5 rounded-full transition-all duration-300"
+                :class="activeTestimonial === index ? 'w-6 bg-gradient-to-r from-blue-500 to-indigo-500' : 'w-1.5 bg-slate-300'"
+                @click="activeTestimonial = index"
               />
             </div>
           </div>
@@ -1092,102 +1121,6 @@ const showTestimonial = (index: number) => {
   margin-top: 28px;
 }
 
-/* 支付墙 */
-.paywall-shell {
-  min-height: calc(100vh - 58px);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px 18px 56px;
-}
-.paywall-card {
-  width: min(100%, 640px);
-  background: white;
-  border: 1px solid #eadfd3;
-  border-radius: 18px;
-  padding: 32px;
-  box-shadow: 0 18px 50px rgba(38, 29, 20, 0.08);
-  text-align: center;
-}
-.paywall-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
-}
-.paywall-card h1 {
-  font-size: clamp(26px, 5vw, 38px);
-  font-weight: 900;
-  line-height: 1.15;
-}
-.paywall-sub {
-  max-width: 520px;
-  margin: 12px auto 0;
-  color: #62584f;
-  line-height: 1.7;
-}
-.preview-card {
-  position: relative;
-  margin-top: 24px;
-  min-height: 260px;
-  max-height: 380px;
-  overflow: hidden;
-  background: #faf7f2;
-  border: 1px solid #eee2d6;
-  border-radius: 14px;
-  text-align: left;
-}
-.preview-card pre {
-  margin: 0;
-  padding: 22px;
-  white-space: pre-wrap;
-  word-break: break-word;
-  line-height: 1.8;
-  color: #4e463f;
-  font-family: inherit;
-  font-size: 15px;
-}
-.preview-card .fade {
-  position: absolute;
-  inset: auto 0 0;
-  height: 120px;
-  background: linear-gradient(to bottom, rgba(255,255,255,0), #fff);
-}
-.paywall-actions {
-  margin-top: 24px;
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.pay-btn {
-  border: none;
-  border-radius: 12px;
-  padding: 14px 16px;
-  background: #1f6feb;
-  color: white;
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-}
-.pay-btn .price {
-  font-size: 20px;
-  font-weight: 900;
-}
-.pay-btn .label {
-  font-size: 15px;
-  font-weight: 700;
-}
-.ghost-btn {
-  border: none;
-  border-radius: 12px;
-  padding: 13px 16px;
-  background: #f2ede7;
-  color: #3d352e;
-  font-size: 15px;
-  font-weight: 800;
-  cursor: pointer;
-}
-
 @media (max-width: 640px) {
   .report-nav {
     grid-template-columns: 96px 1fr 96px;
@@ -1222,17 +1155,6 @@ const showTestimonial = (index: number) => {
   }
   .report-content :deep(table) {
     min-width: 560px;
-  }
-  .paywall-card {
-    padding: 22px 18px;
-  }
-  .preview-card {
-    min-height: 220px;
-    max-height: 320px;
-  }
-  .preview-card pre {
-    padding: 18px;
-    font-size: 14px;
   }
   .report-actions {
     flex-direction: column;
