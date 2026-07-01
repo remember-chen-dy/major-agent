@@ -31,7 +31,7 @@ def normalize_gateway_url(gateway_url: str) -> str:
 
 
 def format_money(value: str | int | float | Decimal) -> str:
-    """统一金额格式，避免 3 与 3.00 的比较误差。"""
+    """统一金额格式，避免整数与两位小数的比较误差。"""
     try:
         money = Decimal(str(value))
     except (InvalidOperation, ValueError) as exc:

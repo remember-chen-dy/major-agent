@@ -18,7 +18,7 @@ QUESTION_CONFIG = {
         "interaction": {
             "type": "form",
             "fields": [
-                {"id": "score", "label": "预估分数", "type": "number", "placeholder": "如 620"},
+                {"id": "score", "label": "分数", "type": "number", "placeholder": "如 620"},
                 {"id": "rank", "label": "全省位次", "type": "number", "placeholder": "如 8500"},
             ],
         },
