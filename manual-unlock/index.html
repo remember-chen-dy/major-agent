@@ -1,0 +1,170 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>人工解锁报告</title>
+    <style>
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        color: #1f2328;
+        background: #f7f3ed;
+      }
+      main {
+        width: min(460px, 100%);
+        padding: 28px;
+        border: 1px solid #eadfd3;
+        border-radius: 16px;
+        background: #fff;
+        box-shadow: 0 18px 50px rgba(38, 29, 20, 0.1);
+      }
+      h1 {
+        margin: 0;
+        font-size: 24px;
+        line-height: 1.25;
+      }
+      p {
+        margin: 10px 0 0;
+        color: #62584f;
+        line-height: 1.7;
+      }
+      form {
+        display: grid;
+        gap: 14px;
+        margin-top: 22px;
+      }
+      label {
+        display: grid;
+        gap: 8px;
+        font-size: 14px;
+        font-weight: 800;
+      }
+      input {
+        width: 100%;
+        border: 1px solid #d9cbbd;
+        border-radius: 12px;
+        padding: 12px 14px;
+        font-size: 15px;
+        outline: none;
+      }
+      input:focus {
+        border-color: #1677ff;
+        box-shadow: 0 0 0 3px rgba(22, 119, 255, 0.12);
+      }
+      button {
+        border: 0;
+        border-radius: 12px;
+        padding: 13px 16px;
+        background: #1677ff;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 900;
+        cursor: pointer;
+      }
+      button:disabled {
+        opacity: 0.62;
+        cursor: not-allowed;
+      }
+      .status {
+        display: none;
+        margin-top: 16px;
+        padding: 12px;
+        border-radius: 12px;
+        font-size: 14px;
+        line-height: 1.6;
+      }
+      .status.show {
+        display: block;
+      }
+      .status.success {
+        background: #e6f4ea;
+        color: #176b31;
+      }
+      .status.error {
+        background: #fdecec;
+        color: #b42318;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>人工审核解锁报告</h1>
+      <p>输入用户发来的解锁码，审核通过后点击按钮，系统会解锁对应的报告。</p>
+
+      <form id="unlock-form">
+        <label>
+          后端地址
+          <input id="api-base" type="url" value="http://127.0.0.1:8000" />
+        </label>
+        <label>
+          解锁码
+          <input id="unlock-code" type="text" placeholder="粘贴用户发来的解锁码" autocomplete="off" required />
+        </label>
+        <button id="submit-btn" type="submit">解锁报告</button>
+      </form>
+
+      <div id="status" class="status"></div>
+    </main>
+
+    <script>
+      const form = document.getElementById("unlock-form");
+      const apiBaseInput = document.getElementById("api-base");
+      const unlockCodeInput = document.getElementById("unlock-code");
+      const submitBtn = document.getElementById("submit-btn");
+      const statusBox = document.getElementById("status");
+      const defaultApiBase = window.location.protocol === "file:" ? "http://127.0.0.1:8000" : window.location.origin;
+
+      apiBaseInput.value = apiBaseInput.value || defaultApiBase;
+
+      const showStatus = (message, type) => {
+        statusBox.textContent = message;
+        statusBox.className = `status show ${type}`;
+      };
+
+      form.addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const apiBase = apiBaseInput.value.trim().replace(/\/$/, "") || defaultApiBase;
+        const unlockCode = unlockCodeInput.value.trim();
+
+        if (!apiBase || !unlockCode) {
+          showStatus("请填写后端地址和解锁码。", "error");
+          return;
+        }
+
+        submitBtn.disabled = true;
+        submitBtn.textContent = "正在解锁...";
+        showStatus("正在提交，请稍等。", "success");
+
+        try {
+          const response = await fetch(`${apiBase}/api/reports/manual-unlock`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ unlock_code: unlockCode }),
+          });
+          const data = await response.json().catch(() => ({}));
+
+          if (!response.ok) {
+            throw new Error(data.detail || `HTTP ${response.status}`);
+          }
+
+          showStatus(`解锁成功，${data.message || '已更新报告'}`, "success");
+        } catch (error) {
+          showStatus(`解锁失败：${error.message || "请检查后端服务和解锁码"}`, "error");
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = "解锁报告";
+        }
+      });
+    </script>
+  </body>
+</html>

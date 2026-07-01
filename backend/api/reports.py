@@ -6,7 +6,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import HTMLResponse, PlainTextResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from core.config import get_settings
@@ -38,6 +38,10 @@ class SaveReportRequest(BaseModel):
 
 class PayReportRequest(BaseModel):
     payment_method: Optional[str] = "alipay"
+
+
+class ManualUnlockReportsRequest(BaseModel):
+    unlock_code: str  # 支持 session_id 或 user_id
 
 
 @router.post("/reports")
@@ -173,6 +177,67 @@ async def get_report_by_session(
     except Exception as e:
         print(f"按会话查询报告失败: {e}")
         raise HTTPException(status_code=500, detail="查询报告失败")
+
+
+@router.post("/reports/manual-unlock")
+async def manual_unlock_reports(
+    payload: ManualUnlockReportsRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    人工审核通过后解锁报告。
+    优先按 session_id 精确解锁单个报告，回退到 user_id 解锁该用户所有报告。
+    """
+    unlock_code = payload.unlock_code.strip()
+    if not unlock_code:
+        raise HTTPException(status_code=400, detail="解锁码不能为空")
+
+    try:
+        # 优先尝试按 session_id 解锁（精确控制）
+        result = await db.execute(
+            select(Report).where(Report.session_id == unlock_code)
+        )
+        reports = result.scalars().all()
+
+        # 如果 session_id 没找到，尝试按 user_id 解锁（兼容旧版）
+        if not reports:
+            result = await db.execute(
+                select(Report).where(Report.user_id == unlock_code)
+            )
+            reports = result.scalars().all()
+
+        if not reports:
+            raise HTTPException(status_code=404, detail="未找到对应的报告")
+
+        # 解锁找到的报告
+        unlocked_count = 0
+        for report in reports:
+            if not report.is_paid:
+                report.is_paid = True
+                unlocked_count += 1
+
+        if unlocked_count == 0:
+            return {
+                "success": True,
+                "unlock_code": unlock_code,
+                "unlocked_count": 0,
+                "message": "报告已经是解锁状态",
+            }
+
+        await db.commit()
+        return {
+            "success": True,
+            "unlock_code": unlock_code,
+            "unlocked_count": unlocked_count,
+            "is_paid": True,
+            "message": f"已解锁 {unlocked_count} 份报告",
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        print(f"人工解锁报告失败: {e}")
+        raise HTTPException(status_code=500, detail="人工解锁报告失败")
 
 
 @router.post("/reports/{report_id}/pay")

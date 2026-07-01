@@ -4,7 +4,9 @@ import { useRoute, useRouter } from 'vue-router';
 import { api } from '../api';
 import { useAuthStore } from '../stores/auth';
 import { useSessionStore } from '../stores/session';
-import groupQrSrc from '../assets/serset.png';
+import { message } from '../utils/message';
+import bilibiliGuideSrc from '../assets/image.png';
+import wechatQrSrc from '../assets/count.jpg';
 
 const route = useRoute();
 const router = useRouter();
@@ -22,14 +24,14 @@ const paymentStatus = ref<'idle' | 'creating' | 'waiting' | 'success' | 'error'>
 const paymentError = ref('');
 let pollTimer: number | null = null;
 
-// 扫码进群免费查看
-const groupModalOpen = ref(false);
-const groupPassword = ref('');
-const groupPasswordError = ref('');
-const GROUP_PASSWORD = '8888';
-const GROUP_QR_SRC = groupQrSrc;
+// 免费通道人工审核
+const freeModalOpen = ref(false);
+const BILIBILI_GUIDE_SRC = bilibiliGuideSrc;
+const WECHAT_QR_SRC = wechatQrSrc;
+const REPORT_UNLOCK_PRICE = '¥9.90';
 
 const valueItems = [
+  '基于国内顶尖大模型深度分析',
   '成绩定位与院校层次分析',
   '适合专业方向深度推荐',
   '志愿填报避坑清单',
@@ -250,27 +252,44 @@ const restartAssessment = async () => {
   }
 };
 
-// 打开扫码进群弹窗
-const openGroupModal = () => {
-  groupModalOpen.value = true;
-  groupPassword.value = '';
-  groupPasswordError.value = '';
-};
+// 优先使用 session_id，精确控制解锁范围
+const freeUnlockCommand = computed(() => sessionId.value || authStore.userId || '');
 
-// 关闭扫码进群弹窗
-const closeGroupModal = () => {
-  groupModalOpen.value = false;
-};
-
-// 提交群密码，验证通过后免费查看报告
-const handleGroupPasswordSubmit = () => {
-  const input = groupPassword.value.trim();
-  if (input !== GROUP_PASSWORD) {
-    groupPasswordError.value = '密码错误，请重新输入';
+const copyUnlockCommand = async () => {
+  const text = freeUnlockCommand.value;
+  if (!text) {
+    message.warning('暂时没有可复制的指令，请稍后重试');
     return;
   }
-  closeGroupModal();
-  router.push(`/report/${sessionId.value}?free=1`);
+
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      const textarea = document.createElement('textarea');
+      textarea.value = text;
+      textarea.setAttribute('readonly', 'true');
+      textarea.style.position = 'fixed';
+      textarea.style.opacity = '0';
+      document.body.appendChild(textarea);
+      textarea.select();
+      document.execCommand('copy');
+      document.body.removeChild(textarea);
+    }
+    message.success('复制成功');
+  } catch {
+    message.error('复制失败，请重新点击按钮');
+  }
+};
+
+// 打开免费通道弹窗
+const openFreeModal = () => {
+  freeModalOpen.value = true;
+};
+
+// 关闭免费通道弹窗
+const closeFreeModal = () => {
+  freeModalOpen.value = false;
 };
 
 onMounted(async () => {
@@ -296,7 +315,7 @@ onBeforeUnmount(() => {
           <span class="title-line">你的志愿规划报告</span>
           <span class="title-highlight">已经准备好了</span>
         </h1>
-        <p class="subtext">点击下方按钮使用支付宝支付 3 元即可查看完整报告。报告会直接在页面内展示，手机端也可以完整阅读。</p>
+        <p class="subtext">点击下方按钮使用支付宝支付 9.9 元即可查看完整报告。报告会直接在页面内展示，手机端也可以完整阅读。</p>
       </div>
 
       <div v-if="loading" class="state-card">正在确认报告状态...</div>
@@ -312,8 +331,8 @@ onBeforeUnmount(() => {
 
         <aside class="action-card">
           <div class="lock">🔒</div>
-          <h2>完整报告需付费解锁</h2>
-          <p>包含成绩定位、专业建议、避坑提醒、城市策略和行动清单。</p>
+          <h2>方式一：极速通道（推荐）</h2>
+          <p>无需等待，直接支付 <strong>9.9元</strong>，输入信息立即生成报告。</p>
 
           <ul class="value-list">
             <li v-for="item in valueItems" :key="item">
@@ -329,7 +348,7 @@ onBeforeUnmount(() => {
 
           <div class="price-row">
             <span class="original-price">¥14.9</span>
-            <span class="price">¥3.00</span>
+            <span class="price">{{ REPORT_UNLOCK_PRICE }}</span>
           </div>
           <div class="price-hint" >支付宝扫码支付 · 一次性解锁，永久查看</div>
           <div class="refund-hint" >本产品属于虚拟服务/数字商品，其特殊性在于一经发出即可被获取，故无法适用退货退款流程。</div>
@@ -338,11 +357,13 @@ onBeforeUnmount(() => {
             <span v-if="paying">正在等待支付宝支付...</span>
             <span v-else>支付宝支付解锁完整报告</span>
           </button>
-          <button class="ghost-btn group-entry-btn" @click="openGroupModal">
-            <span class="group-icon">📱</span>
-            扫码进群免费查看报告
+          <!-- <div class="free-channel-summary">
+            <strong>方式二：免费通道（需人工审核）</strong>
+            <span>B站一键三连 + 添加微信 + 发送截图，1小时内人工审核解锁。</span>
+          </div> -->
+          <button class="ghost-btn group-entry-btn" @click="openFreeModal">
+            免费查看报告
           </button>
-          <p class="group-hint">加入微信群并输入群密码，即可免费解锁完整报告</p>
           <div class="secondary-actions">
             <button class="text-link" @click="restartAssessment">重新测评</button>
             <span class="divider">·</span>
@@ -361,7 +382,7 @@ onBeforeUnmount(() => {
         <button class="dialog-close" type="button" aria-label="关闭支付弹框" @click="closePaymentDialog">×</button>
         <div class="payment-head">
           <span class="alipay-badge">支付宝</span>
-          <h2 id="payment-title">扫码支付 ¥3.00</h2>
+          <h2 id="payment-title">扫码支付 {{ REPORT_UNLOCK_PRICE }}</h2>
           <p>支付成功后会自动打开完整报告。</p>
         </div>
 
@@ -397,37 +418,49 @@ onBeforeUnmount(() => {
       </section>
     </div>
 
-    <!-- 扫码进群免费查看弹窗 -->
-    <div v-if="groupModalOpen" class="payment-overlay group-overlay" @click.self="closeGroupModal">
-      <section class="payment-dialog group-dialog" role="dialog" aria-modal="true" aria-labelledby="group-title">
-        <button class="dialog-close" type="button" aria-label="关闭进群弹窗" @click="closeGroupModal">×</button>
+    <!-- 免费通道人工审核弹窗 -->
+    <div v-if="freeModalOpen" class="payment-overlay group-overlay" @click.self="closeFreeModal">
+      <section class="payment-dialog group-dialog" role="dialog" aria-modal="true" aria-labelledby="free-title">
+        <button class="dialog-close" type="button" aria-label="关闭免费通道弹窗" @click="closeFreeModal">×</button>
         <div class="payment-head">
-          <span class="group-badge">免费解锁</span>
-          <h2 id="group-title">扫码进群查看报告</h2>
-          <p>扫描二维码加入微信群，进群后输入群密码即可免费查看完整报告。</p>
+          <span class="group-badge">免费通道</span>
+          <h2 id="free-title">方式二：免费通道（需人工审核）</h2>
+          <p>B站一键三连 + 添加微信 + 发送截图，1小时内人工审核解锁。</p>
         </div>
 
-        <div class="group-body">
-          <div class="qr-box group-qr">
-            <img :src="GROUP_QR_SRC" alt="微信群二维码" />
-          </div>
-          <p class="qr-save-tip">长按二维码保存图片</p>
-          <p class="qr-tip">微信扫码进群，获取完整密码</p>
+        <div class="free-steps">
+          <section class="free-step">
+            <div class="step-index">1</div>
+            <div class="step-content">
+              <h3>复制解锁指令</h3>
+              <p>点击按钮复制专属指令，稍后和截图一起发给我。</p>
+              <button type="button" class="copy-command-btn" @click="copyUnlockCommand">
+                复制指令
+              </button>
+            </div>
+          </section>
 
-          <div class="password-form">
-            <label for="group-password">请输入群密码</label>
-            <input
-              id="group-password"
-              v-model="groupPassword"
-              type="text"
-              inputmode="numeric"
-              maxlength="4"
-              placeholder="4 位数字密码"
-              @keyup.enter="handleGroupPasswordSubmit"
-            />
-            <p v-if="groupPasswordError" class="password-error">{{ groupPasswordError }}</p>
-            <button type="button" class="pay-btn" @click="handleGroupPasswordSubmit">立即查看报告</button>
-          </div>
+          <section class="free-step">
+            <div class="step-index">2</div>
+            <div class="step-content">
+              <h3>去B站完成一键三连</h3>
+              <p>按图示在B站搜索 <strong>rn攻城狮</strong> 账号，对图片中的视频一键三连，并保存截图。</p>
+              <div class="guide-image video-guide">
+                <img :src="BILIBILI_GUIDE_SRC" alt="B站搜索 rn攻城狮账号指引" />
+              </div>
+            </div>
+          </section>
+
+          <section class="free-step">
+            <div class="step-index">3</div>
+            <div class="step-content">
+              <h3>添加微信发送资料</h3>
+              <p>扫码加我微信，把刚才复制的内容和一键三连截图一并发给我，可以免费解锁报告。</p>
+              <div class="guide-image wechat-guide">
+                <img :src="WECHAT_QR_SRC" alt="微信二维码" />
+              </div>
+            </div>
+          </section>
         </div>
       </section>
     </div>
@@ -636,6 +669,29 @@ h1 {
   font-size: 11px;
   line-height: 1.5;
   color: #a47d61;
+}
+.free-channel-summary {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid rgba(30, 142, 62, 0.18);
+  border-radius: 12px;
+  background: #f2fbf5;
+  text-align: left;
+}
+.free-channel-summary strong,
+.free-channel-summary span {
+  display: block;
+}
+.free-channel-summary strong {
+  color: #176b31;
+  font-size: 14px;
+  font-weight: 850;
+}
+.free-channel-summary span {
+  margin-top: 5px;
+  color: #4f6355;
+  font-size: 12px;
+  line-height: 1.55;
 }
 .pay-btn,
 .ghost-btn,
@@ -872,15 +928,6 @@ h1 {
   gap: 8px;
   margin-top: 10px;
 }
-.group-icon {
-  font-size: 18px;
-}
-.group-hint {
-  margin-top: 10px;
-  font-size: 12px;
-  color: #8e6a4b;
-  line-height: 1.5;
-}
 .group-badge {
   display: inline-flex;
   align-items: center;
@@ -893,55 +940,75 @@ h1 {
   font-size: 13px;
   font-weight: 900;
 }
-.group-body {
-  padding: 4px 0 8px;
+.group-dialog {
+  width: min(680px, 100%);
 }
-.group-qr {
-  margin-bottom: 12px;
+.free-steps {
+  display: grid;
+  gap: 14px;
+  padding-bottom: 4px;
 }
-.qr-tip {
-  text-align: center;
-  font-size: 13px;
-  color: #3d352e;
-  font-weight: 700;
-  margin-bottom: 6px;
-}
-.qr-save-tip {
-  text-align: center;
-  font-size: 12px;
-  color: #666;
-  margin-bottom: 18px;
-}
-.password-form {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.password-form label {
-  font-size: 14px;
-  font-weight: 700;
-  color: #1f2328;
-}
-.password-form input {
-  width: 100%;
+.free-step {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  padding: 14px;
   border: 1px solid #eadfd3;
-  border-radius: 12px;
-  padding: 12px 14px;
+  border-radius: 14px;
+  background: #fffdfb;
+}
+.step-index {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  display: grid;
+  place-items: center;
+  background: #1f6feb;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 900;
+}
+.step-content h3 {
+  margin: 4px 0 6px;
+  color: #1f2328;
   font-size: 16px;
-  text-align: center;
-  letter-spacing: 0.3em;
-  outline: none;
-  transition: all 0.2s ease;
+  font-weight: 850;
 }
-.password-form input:focus {
-  border-color: #1f6feb;
-  box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.12);
-}
-.password-error {
+.step-content p {
   margin: 0;
-  color: #b42318;
-  font-size: 13px;
-  text-align: center;
+  color: #62584f;
+  font-size: 14px;
+  line-height: 1.65;
+}
+.copy-command-btn {
+  margin-top: 12px;
+  border: none;
+  border-radius: 12px;
+  padding: 11px 16px;
+  background: #1677ff;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 850;
+  cursor: pointer;
+}
+.guide-image {
+  margin-top: 12px;
+  overflow: hidden;
+  border: 1px solid #eadfd3;
+  border-radius: 14px;
+  background: #f7f3ed;
+}
+.guide-image img {
+  display: block;
+  width: 100%;
+  height: auto;
+}
+.wechat-guide {
+  width: min(260px, 100%);
+  margin-left: auto;
+  margin-right: auto;
+  padding: 10px;
+  background: #fff;
 }
 
 @media (max-width: 760px) {
@@ -970,6 +1037,14 @@ h1 {
   }
   .dialog-actions {
     grid-template-columns: 1fr;
+  }
+  .free-step {
+    grid-template-columns: 30px minmax(0, 1fr);
+    padding: 12px;
+  }
+  .step-index {
+    width: 30px;
+    height: 30px;
   }
 }
 </style>

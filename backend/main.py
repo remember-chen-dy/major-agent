@@ -8,12 +8,17 @@ backend_dir = os.path.dirname(os.path.abspath(__file__))
 if backend_dir not in sys.path:
     sys.path.insert(0, backend_dir)
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from core.config import get_settings
 from config.database import init_db, close_db
 from api import assessment_router, auth_router, sessions_router, reports_router
+
+# 人工解锁页面目录
+manual_unlock_dir = os.path.join(backend_dir, "..", "manual-unlock")
 
 settings = get_settings()
 
@@ -44,8 +49,8 @@ app = FastAPI(
 # CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -56,26 +61,43 @@ app.include_router(sessions_router)
 app.include_router(assessment_router)
 app.include_router(reports_router)
 
-# 挂载静态目录（保留给未来静态资源使用）
-# 注意：生产环境使用 MinIO 对象存储，本地 static 目录仅用于开发调试
-# static_dir = os.path.join(backend_dir, "static")
-# os.makedirs(os.path.join(static_dir, "reports"), exist_ok=True)
-# app.mount("/static", StaticFiles(directory=static_dir), name="static")
+# 前端构建产物目录
+frontend_dist = os.path.join(backend_dir, "..", "frontend", "dist")
 
-
-@app.get("/")
-async def root():
-    """健康检查"""
-    return {
-        "name": settings.APP_NAME,
-        "version": settings.APP_VERSION,
-        "status": "running",
-    }
+# 挂载前端静态资源（JS/CSS/图片）
+if os.path.isdir(os.path.join(frontend_dist, "assets")):
+    app.mount("/assets", StaticFiles(directory=os.path.join(frontend_dist, "assets")), name="assets")
 
 
 @app.get("/health")
 async def health_check():
     return {"status": "ok"}
+
+
+@app.get("/admin/manual-unlock", response_class=HTMLResponse)
+async def manual_unlock_page():
+    """人工解锁管理页面"""
+    html_path = os.path.join(manual_unlock_dir, "index.html")
+    if not os.path.isfile(html_path):
+        return HTMLResponse("<h1>页面不存在</h1>", status_code=404)
+    with open(html_path, encoding="utf-8") as f:
+        content = f.read()
+    # 自动替换后端地址为当前服务地址
+    content = content.replace('value="http://127.0.0.1:8000"', 'value=""')
+    return HTMLResponse(content)
+
+
+@app.get("/{full_path:path}", response_class=HTMLResponse)
+async def serve_spa(request: Request, full_path: str):
+    """前端 SPA 兜底：所有非 API 路由返回 index.html"""
+    # 尝试返回静态文件（favicon.svg 等）
+    file_path = os.path.join(frontend_dist, full_path)
+    if full_path and os.path.isfile(file_path):
+        return FileResponse(file_path)
+    # 兜底返回 index.html
+    index_path = os.path.join(frontend_dist, "index.html")
+    with open(index_path, encoding="utf-8") as f:
+        return HTMLResponse(content=f.read())
 
 
 if __name__ == "__main__":
